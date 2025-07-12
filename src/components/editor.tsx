@@ -20,9 +20,8 @@ import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
-// import { enhanceImageQualityAction, removeBackgroundAction } from '@/lib/actions';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
 
@@ -45,7 +44,11 @@ const PRESETS = [
 
 export function Editor({ image }: EditorProps) {
   const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
-  const [activeImage, setActiveImage] = useState(image);
+  
+  const [history, setHistory] = useState<string[]>([image]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const activeImage = history[historyIndex];
+
   const [reasoning, setReasoning] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState('');
@@ -56,7 +59,28 @@ export function Editor({ image }: EditorProps) {
   const [completedCrop, setCompletedCrop] = useState<Crop>();
   const [isCropping, setIsCropping] = useState(false);
 
-  // Temporarily disable AI functions
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < history.length - 1;
+
+  const handleUndo = () => {
+    if (canUndo) {
+      setHistoryIndex(historyIndex - 1);
+    }
+  };
+
+  const handleRedo = () => {
+    if (canRedo) {
+      setHistoryIndex(historyIndex + 1);
+    }
+  };
+
+  const updateHistory = (newImage: string) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(newImage);
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  };
+
   const handleEnhance = async () => {
     toast({ title: "Temporarily Disabled", description: "This feature is currently being worked on." });
   };
@@ -67,11 +91,15 @@ export function Editor({ image }: EditorProps) {
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
     const crop = centerCrop(
-        {
-            unit: '%',
-            width: 90,
-            height: 90,
-        },
+        makeAspectCrop(
+            {
+                unit: '%',
+                width: 90,
+            },
+            1,
+            width,
+            height
+        ),
         width,
         height
     );
@@ -81,15 +109,17 @@ export function Editor({ image }: EditorProps) {
   
   const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop): Promise<string> => {
     return new Promise((resolve, reject) => {
+      // Ensure the image is loaded before we try to crop it.
       const image = new window.Image();
       image.src = sourceImage.src;
-      image.crossOrigin = 'anonymous';
+      image.crossOrigin = 'anonymous'; // Important for canvas operations
 
       image.onload = () => {
         const canvas = document.createElement('canvas');
         const scaleX = image.naturalWidth / image.width;
         const scaleY = image.naturalHeight / image.height;
 
+        // We need to account for the original image dimensions
         const pixelCrop = {
           x: crop.x * scaleX,
           y: crop.y * scaleY,
@@ -139,7 +169,7 @@ export function Editor({ image }: EditorProps) {
     
     try {
       const croppedImageUrl = await getCroppedImg(imageRef.current, completedCrop);
-      setActiveImage(croppedImageUrl);
+      updateHistory(croppedImageUrl);
     } catch(e) {
        toast({
             variant: 'destructive',
@@ -149,7 +179,7 @@ export function Editor({ image }: EditorProps) {
     }
 
     setIsCropping(false);
-  }, [completedCrop]);
+  }, [completedCrop, history, historyIndex, toast]);
 
   const handleExport = () => {
     const canvas = document.createElement('canvas');
@@ -169,7 +199,7 @@ export function Editor({ image }: EditorProps) {
         const originalHeight = originalImage.naturalHeight;
 
         canvas.width = originalWidth * absCos + originalHeight * absSin;
-        canvas.height = originalWidth * absSin + originalHeight * absCos;
+        canvas.height = originalWidth * absSin + originalWidth * absCos;
         
         ctx.filter = cssFilters;
         ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -183,6 +213,12 @@ export function Editor({ image }: EditorProps) {
         link.click();
     };
   };
+
+  const handleFullReset = () => {
+    reset();
+    setHistory([image]);
+    setHistoryIndex(0);
+  }
 
   return (
     <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)]">
@@ -221,18 +257,40 @@ export function Editor({ image }: EditorProps) {
         <CardContent className="p-4 flex-1 flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-headline font-bold">Editing Tools</h2>
-            <TooltipProvider>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={reset}>
-                    <RotateCcw className="w-4 h-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p>Reset All</p>
-                </TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
+            <div className="flex items-center gap-1">
+              <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}>
+                        <Undo className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Undo</p>
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo}>
+                        <Redo className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Redo</p>
+                    </TooltipContent>
+                  </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={handleFullReset}>
+                      <RotateCcw className="w-4 h-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Reset All</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            </div>
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2">
@@ -331,3 +389,5 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
+
+    
