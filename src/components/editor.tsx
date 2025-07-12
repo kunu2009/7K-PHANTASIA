@@ -24,7 +24,6 @@ import { useToast } from '@/hooks/use-toast';
 import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Circle } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
-import { removeBackgroundAction } from '@/lib/actions';
 
 interface EditorProps {
   image: string;
@@ -52,7 +51,6 @@ export function Editor({ image }: EditorProps) {
 
   const [reasoning, setReasoning] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingMessage, setProcessingMessage] = useState('');
   const imageRef = useRef<HTMLImageElement>(null);
   const { toast } = useToast();
 
@@ -63,7 +61,7 @@ export function Editor({ image }: EditorProps) {
   const [isErasing, setIsErasing] = useState(false);
   const [brushSize, setBrushSize] = useState(40);
   
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const eraseCanvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
 
@@ -88,13 +86,10 @@ export function Editor({ image }: EditorProps) {
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
   };
-
-  const handleEnhance = async () => {
-    toast({ title: "Temporarily Disabled", description: "This feature is currently being worked on." });
-  };
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
+    setCrop(undefined); // Clear previous crop
     const initialCrop = centerCrop(
       makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
       width,
@@ -167,16 +162,17 @@ export function Editor({ image }: EditorProps) {
     }
 
     setIsCropping(false);
-  }, [completedCrop, activeImage, updateHistory, toast]);
+  }, [completedCrop, activeImage, toast]);
 
   const setupEraseCanvas = useCallback(() => {
-    const baseCanvas = canvasRef.current;
+    const baseCanvas = baseCanvasRef.current;
     const eraseLayer = eraseCanvasRef.current;
+    if (!baseCanvas || !eraseLayer) return;
+
     const img = new window.Image();
     img.src = activeImage;
     img.crossOrigin = "anonymous";
     img.onload = () => {
-      if(baseCanvas && eraseLayer) {
         const { naturalWidth, naturalHeight } = img;
         const parent = baseCanvas.parentElement;
         if (parent) {
@@ -202,9 +198,9 @@ export function Editor({ image }: EditorProps) {
             const eraseCtx = eraseLayer.getContext('2d');
             if (eraseCtx) {
                 eraseCtx.clearRect(0, 0, width, height);
+                eraseCtx.drawImage(img, 0, 0, width, height);
             }
         }
-      }
     };
   }, [activeImage]);
 
@@ -225,14 +221,21 @@ export function Editor({ image }: EditorProps) {
   }
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const eraseCtx = eraseCanvasRef.current?.getContext('2d');
+    if (!eraseCtx) return;
+    
     setIsDrawing(true);
-    draw(e);
+    const { x, y } = getCanvasCoordinates(e);
+    eraseCtx.beginPath();
+    eraseCtx.moveTo(x, y);
   };
   
   const stopDrawing = () => {
-    setIsDrawing(false);
     const eraseCtx = eraseCanvasRef.current?.getContext('2d');
-    eraseCtx?.beginPath();
+    if (!eraseCtx) return;
+
+    eraseCtx.closePath();
+    setIsDrawing(false);
   };
   
   const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -244,26 +247,18 @@ export function Editor({ image }: EditorProps) {
       eraseCtx.globalCompositeOperation = 'destination-out';
       eraseCtx.lineWidth = brushSize;
       eraseCtx.lineCap = 'round';
+      eraseCtx.lineJoin = 'round';
       eraseCtx.lineTo(x, y);
       eraseCtx.stroke();
-      eraseCtx.beginPath();
-      eraseCtx.moveTo(x, y);
     }
   };
 
   const handleApplyErase = () => {
-      const baseCanvas = canvasRef.current;
       const eraseLayer = eraseCanvasRef.current;
 
-      if (baseCanvas && eraseLayer) {
-        const baseCtx = baseCanvas.getContext('2d');
-        if (baseCtx) {
-            baseCtx.globalCompositeOperation = 'destination-in';
-            baseCtx.drawImage(eraseLayer, 0, 0);
-
-            const resultDataUrl = baseCanvas.toDataURL('image/png');
-            updateHistory(resultDataUrl);
-        }
+      if (eraseLayer) {
+        const resultDataUrl = eraseLayer.toDataURL('image/png');
+        updateHistory(resultDataUrl);
       }
       setIsErasing(false);
   };
@@ -317,14 +312,14 @@ export function Editor({ image }: EditorProps) {
     <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)]">
       <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden">
         {isErasing && (
-          <div className="relative w-full h-full">
-            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-contain" />
+          <div className="relative w-full h-full flex items-center justify-center">
+            <canvas ref={baseCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
             <canvas 
               ref={eraseCanvasRef}
-              className="absolute inset-0 w-full h-full object-contain cursor-crosshair"
+              className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair"
               onMouseDown={startDrawing}
               onMouseUp={stopDrawing}
-              onMouseOut={stopDrawing}
+              onMouseLeave={stopDrawing}
               onMouseMove={draw}
             />
           </div>
@@ -366,9 +361,9 @@ export function Editor({ image }: EditorProps) {
         <CardContent className="p-4 flex-1 flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-headline font-bold">
-              {isErasing ? 'Erase Background' : 'Editing Tools' }
+              {isErasing ? 'Erase Background' : isCropping ? 'Crop Image' : 'Editing Tools' }
             </h2>
-            {!isErasing && (
+            {!inEditMode && (
             <div className="flex items-center gap-1">
               <TooltipProvider>
                   <Tooltip>
@@ -431,16 +426,24 @@ export function Editor({ image }: EditorProps) {
                   <Button onClick={handleApplyErase}>Apply Erase</Button>
                  </div>
                </div>
+            ) : isCropping ? (
+                 <div className="space-y-6">
+                     <p className="text-sm text-muted-foreground">Adjust the selection on the image to crop it.</p>
+                     <div className="grid grid-cols-2 gap-2 pt-4">
+                        <Button variant="outline" onClick={() => setIsCropping(false)}>Cancel</Button>
+                        <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
+                     </div>
+                 </div>
             ) : (
             <Accordion type="multiple" defaultValue={['ai-tools', 'adjustments']} className="w-full">
               <AccordionItem value="ai-tools">
                 <AccordionTrigger className="font-semibold"><Sparkles className="mr-2 text-primary h-5 w-5"/>AI Tools</AccordionTrigger>
                 <AccordionContent className="space-y-2 pt-2 grid grid-cols-2 gap-2">
-                  <Button onClick={handleEnhance} disabled={isProcessing || inEditMode} className="w-full bg-primary/90 hover:bg-primary col-span-2">
-                    <Wand2 className="mr-2 h-4 w-4" /> {isProcessing && processingMessage === 'Enhancing...' ? 'Enhancing...' : 'Auto Enhance'}
+                  <Button onClick={() => toast({ title: 'Coming Soon!', description: 'Auto enhance will be back better than ever.'})} disabled={isProcessing || inEditMode} className="w-full bg-primary/90 hover:bg-primary col-span-2">
+                    <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
                   </Button>
-                   <Button onClick={() => setIsErasing(true)} disabled={isProcessing || inEditMode} className="w-full">
-                    <Scissors className="mr-2 h-4 w-4" /> BG Remover
+                   <Button onClick={() => setIsErasing(true)} disabled={isProcessing || inEditMode} className="w-full col-span-2">
+                    <Scissors className="mr-2 h-4 w-4" /> Background Eraser
                   </Button>
                   {isProcessing && <Skeleton className="h-20 w-full col-span-2" />}
                   {reasoning && !isProcessing && (
@@ -508,25 +511,18 @@ export function Editor({ image }: EditorProps) {
                   <Button variant="outline" onClick={() => rotate(-90)} disabled={inEditMode}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
                   <Button variant="outline" onClick={() => flip('horizontal')} disabled={inEditMode}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
                   <Button variant="outline" onClick={() => flip('vertical')} disabled={inEditMode}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
-                   {isCropping ? (
-                      <>
-                        <Button variant="secondary" onClick={applyCrop} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
-                        <Button variant="ghost" onClick={() => setIsCropping(false)} className="col-span-2">Cancel</Button>
-                      </>
-                    ) : (
-                      <Button variant="outline" onClick={() => setIsCropping(true)} className="col-span-2" disabled={inEditMode}><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
-                    )}
+                  <Button variant="outline" onClick={() => setIsCropping(true)} className="col-span-2" disabled={inEditMode}><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
             )}
           </div>
 
-          <div className="mt-auto pt-4">
-            <Button size="lg" className="w-full bg-accent hover:bg-accent/90" onClick={handleExport} disabled={inEditMode}>
+          {!inEditMode && (<div className="mt-auto pt-4">
+            <Button size="lg" className="w-full bg-accent hover:bg-accent/90" onClick={handleExport}>
               <Download className="mr-2 h-5 w-5"/> Export Image
             </Button>
-          </div>
+          </div>)}
         </CardContent>
       </Card>
     </div>
