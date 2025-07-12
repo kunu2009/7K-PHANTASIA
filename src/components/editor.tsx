@@ -1,6 +1,8 @@
 'use client';
-import { useState, useRef } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import Image from 'next/image';
+import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop';
+import 'react-image-crop/dist/ReactCrop.css';
 import {
   Accordion,
   AccordionContent,
@@ -17,9 +19,9 @@ import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
-import { enhanceImageQualityAction } from '@/lib/actions';
+import { enhanceImageQualityAction, removeBackgroundAction } from '@/lib/actions';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2 } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
 
@@ -33,19 +35,29 @@ const PRESETS = [
   { name: 'Grayscale', icon: '🎞️', settings: { grayscale: 100 } },
   { name: 'Cool', icon: '🧊', settings: { contrast: 110, brightness: 105, hueRotate: -15 } },
   { name: 'Warm', icon: '🔥', settings: { sepia: 20, saturate: 130, hueRotate: 5 } },
+  { name: 'Lomo', icon: '📷', settings: { contrast: 150, saturate: 150, sepia: 20, hueRotate: -5 } },
+  { name: 'Clarity', icon: '✨', settings: { contrast: 120, saturate: 110, brightness: 105 } },
+  { name: 'Sin City', icon: '🌆', settings: { contrast: 200, grayscale: 100, brightness: 80, sepia: 20 } },
+  { name: 'Sunrise', icon: '🌅', settings: { contrast: 110, saturate: 140, brightness: 110, sepia: 10, hueRotate: -10 } },
 ];
+
 
 export function Editor({ image }: EditorProps) {
   const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
   const [activeImage, setActiveImage] = useState(image);
   const [enhancedImage, setEnhancedImage] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState<string | null>(null);
-  const [isEnhancing, setIsEnhancing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMessage, setProcessingMessage] = useState('');
   const imageRef = useRef<HTMLImageElement>(null);
   const { toast } = useToast();
 
+  const [crop, setCrop] = useState<Crop>();
+  const [isCropping, setIsCropping] = useState(false);
+
   const handleEnhance = async () => {
-    setIsEnhancing(true);
+    setIsProcessing(true);
+    setProcessingMessage('Enhancing...');
     setReasoning(null);
     try {
       const result = await enhanceImageQualityAction(activeImage);
@@ -59,9 +71,78 @@ export function Editor({ image }: EditorProps) {
         description: (error as Error).message,
       });
     } finally {
-      setIsEnhancing(false);
+      setIsProcessing(false);
     }
   };
+  
+  const handleRemoveBackground = async () => {
+    setIsProcessing(true);
+    setProcessingMessage('Removing background...');
+    setReasoning(null);
+    try {
+      const result = await removeBackgroundAction(activeImage);
+      setActiveImage(result.photoWithTransparentBackground);
+      setReasoning('The background has been removed.');
+    } catch (error) {
+       toast({
+        variant: 'destructive',
+        title: 'Background Removal Failed',
+        description: (error as Error).message,
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+  
+  const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { width, height } = e.currentTarget;
+    const initialCrop = centerCrop(
+      makeAspectCrop({ unit: '%', width: 90 }, 16/9, width, height),
+      width,
+      height
+    );
+    setCrop(initialCrop);
+  };
+  
+  const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop) => {
+    const canvas = document.createElement('canvas');
+    const scaleX = sourceImage.naturalWidth / sourceImage.width;
+    const scaleY = sourceImage.naturalHeight / sourceImage.height;
+    
+    const pixelCropX = crop.x * scaleX;
+    const pixelCropY = crop.y * scaleY;
+    const pixelCropWidth = crop.width * scaleX;
+    const pixelCropHeight = crop.height * scaleY;
+
+    canvas.width = pixelCropWidth;
+    canvas.height = pixelCropHeight;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    ctx.drawImage(
+      sourceImage,
+      pixelCropX,
+      pixelCropY,
+      pixelCropWidth,
+      pixelCropHeight,
+      0,
+      0,
+      pixelCropWidth,
+      pixelCropHeight
+    );
+    return canvas.toDataURL('image/png');
+  }
+
+  const applyCrop = useCallback(() => {
+    if (crop && imageRef.current) {
+        const croppedImageUrl = getCroppedImg(imageRef.current, crop);
+        if (croppedImageUrl) {
+            setActiveImage(croppedImageUrl);
+        }
+    }
+    setIsCropping(false);
+  }, [crop]);
 
   const handleExport = () => {
     const img = imageRef.current;
@@ -102,7 +183,21 @@ export function Editor({ image }: EditorProps) {
   return (
     <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)]">
       <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden">
-         <Image
+        {isCropping ? (
+           <ReactCrop crop={crop} onChange={c => setCrop(c)} aspect={16 / 9}>
+              <Image
+                ref={imageRef}
+                key={activeImage}
+                src={activeImage}
+                alt="Cropping preview"
+                fill
+                className="object-contain"
+                onLoad={onImageLoad}
+                data-ai-hint="photo edit"
+              />
+            </ReactCrop>
+        ) : (
+          <Image
             ref={imageRef}
             key={activeImage}
             src={activeImage}
@@ -112,6 +207,7 @@ export function Editor({ image }: EditorProps) {
             style={{ filter: cssFilters, transform: cssTransform }}
             data-ai-hint="photo edit"
           />
+        )}
       </div>
 
       <Card className="flex flex-col">
@@ -136,13 +232,16 @@ export function Editor({ image }: EditorProps) {
             <Accordion type="multiple" defaultValue={['ai-tools', 'adjustments']} className="w-full">
               <AccordionItem value="ai-tools">
                 <AccordionTrigger className="font-semibold"><Sparkles className="mr-2 text-primary h-5 w-5"/>AI Tools</AccordionTrigger>
-                <AccordionContent className="space-y-4 pt-2">
-                  <Button onClick={handleEnhance} disabled={isEnhancing} className="w-full bg-primary/90 hover:bg-primary">
-                    <Wand2 className="mr-2 h-4 w-4" /> {isEnhancing ? 'Enhancing...' : 'Auto Enhance'}
+                <AccordionContent className="space-y-2 pt-2 grid grid-cols-2 gap-2">
+                  <Button onClick={handleEnhance} disabled={isProcessing} className="w-full bg-primary/90 hover:bg-primary col-span-2">
+                    <Wand2 className="mr-2 h-4 w-4" /> {isProcessing && processingMessage === 'Enhancing...' ? 'Enhancing...' : 'Auto Enhance'}
                   </Button>
-                  {isEnhancing && <Skeleton className="h-20 w-full" />}
-                  {reasoning && !isEnhancing && (
-                    <Alert>
+                   <Button onClick={handleRemoveBackground} disabled={isProcessing} className="w-full">
+                    <Scissors className="mr-2 h-4 w-4" /> {isProcessing && processingMessage === 'Removing background...' ? 'Working...' : 'BG Remover'}
+                  </Button>
+                  {isProcessing && <Skeleton className="h-20 w-full col-span-2" />}
+                  {reasoning && !isProcessing && (
+                    <Alert className="col-span-2">
                       <Bot className="h-4 w-4" />
                       <AlertTitle>AI Analysis</AlertTitle>
                       <AlertDescription>{reasoning}</AlertDescription>
@@ -205,6 +304,11 @@ export function Editor({ image }: EditorProps) {
                   <Button variant="outline" onClick={() => rotate(-90)}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
                   <Button variant="outline" onClick={() => flip('horizontal')}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
                   <Button variant="outline" onClick={() => flip('vertical')}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
+                   {isCropping ? (
+                      <Button variant="secondary" onClick={applyCrop} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
+                    ) : (
+                      <Button variant="outline" onClick={() => setIsCropping(true)} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
+                    )}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
