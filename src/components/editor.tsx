@@ -89,7 +89,6 @@ export function Editor({ image }: EditorProps) {
   };
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    const { width, height } = e.currentTarget;
     setCrop(undefined); // Clear previous crop
   };
   
@@ -348,8 +347,8 @@ export function Editor({ image }: EditorProps) {
   const inEditMode = editMode !== 'none';
 
   return (
-    <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)] grid-rows-[minmax(0,1fr)_auto]">
-      <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-[300px] md:min-h-0">
+    <div className="grid md:grid-cols-3 gap-8 h-full md:h-[calc(100vh-10rem)] grid-rows-[minmax(0,1fr)_auto] md:grid-rows-1">
+      <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-[300px] md:min-h-0 h-full">
         {editMode === 'erase' && (
           <div className="relative w-full h-full flex items-center justify-center">
             <canvas ref={baseCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
@@ -401,7 +400,7 @@ export function Editor({ image }: EditorProps) {
       </div>
 
       <Card className="flex flex-col min-h-0">
-        <CardContent className="p-4 flex-1 flex flex-col">
+        <CardContent className="p-4 flex-1 flex flex-col min-h-0">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-headline font-bold">
               {editMode === 'erase' ? 'Erase Background' : editMode === 'crop' ? 'Crop Image' : 'Editing Tools' }
@@ -444,7 +443,7 @@ export function Editor({ image }: EditorProps) {
             )}
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-2">
+          <div className="flex-1 overflow-y-auto pr-2 min-h-0">
             {editMode === 'erase' ? (
                <div className="space-y-6">
                  <div>

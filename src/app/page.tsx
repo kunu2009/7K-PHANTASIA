@@ -31,7 +31,7 @@ export default function Home() {
           )}
         </div>
       </header>
-      <main className="flex-1">
+      <main className="flex-1 flex flex-col">
         <div className="container mx-auto flex flex-1 flex-col py-8 px-4 w-full h-full">
           {image ? (
             <Editor image={image} onReset={handleReset} />
