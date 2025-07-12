@@ -1,6 +1,6 @@
 
 'use client';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import Image from 'next/image';
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop';
 import 'react-image-crop/dist/ReactCrop.css';
@@ -21,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Circle } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
 import { removeBackgroundAction } from '@/lib/actions';
@@ -58,7 +58,14 @@ export function Editor({ image }: EditorProps) {
 
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<Crop>();
+  
   const [isCropping, setIsCropping] = useState(false);
+  const [isErasing, setIsErasing] = useState(false);
+  const [brushSize, setBrushSize] = useState(40);
+  
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const eraseCanvasRef = useRef<HTMLCanvasElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -86,60 +93,37 @@ export function Editor({ image }: EditorProps) {
     toast({ title: "Temporarily Disabled", description: "This feature is currently being worked on." });
   };
   
-  const handleRemoveBackground = async () => {
-    setIsProcessing(true);
-    setProcessingMessage('Removing background...');
-    setReasoning(null);
-    try {
-      const result = await removeBackgroundAction(activeImage);
-      if (result.photoWithTransparentBackground) {
-        updateHistory(result.photoWithTransparentBackground);
-        toast({
-          title: 'Background Removed',
-          description: 'The background was successfully removed from the image.',
-        });
-      } else {
-        throw new Error('The AI did not return an image.');
-      }
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Background Removal Failed',
-        description: (error as Error).message || 'An unknown error occurred.',
-      });
-    } finally {
-      setIsProcessing(false);
-      setProcessingMessage('');
-    }
-  };
-  
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
-    setCrop(
-      centerCrop(
-        makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
-        width,
-        height
-      )
+    const initialCrop = centerCrop(
+      makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
+      width,
+      height
     );
+    setCrop(initialCrop);
   };
   
-  const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop): Promise<string> => {
+  const getCroppedImg = (): Promise<string> => {
     return new Promise((resolve, reject) => {
-      const image = new window.Image();
-      image.src = sourceImage.src;
-      image.crossOrigin = 'anonymous'; 
-
-      image.onload = () => {
+      const sourceImage = new window.Image();
+      sourceImage.src = activeImage;
+      sourceImage.crossOrigin = 'anonymous';
+      
+      sourceImage.onload = () => {
+        if (!completedCrop || !completedCrop.width || !completedCrop.height) {
+            reject(new Error('Crop is not complete'));
+            return;
+        }
+        
         const canvas = document.createElement('canvas');
-        const scaleX = image.naturalWidth / image.width;
-        const scaleY = image.naturalHeight / image.height;
+        const scaleX = sourceImage.naturalWidth / sourceImage.width;
+        const scaleY = sourceImage.naturalHeight / sourceImage.height;
 
         const pixelCrop = {
-          x: crop.x * scaleX,
-          y: crop.y * scaleY,
-          width: crop.width * scaleX,
-          height: crop.height * scaleY
+          x: completedCrop.x * scaleX,
+          y: completedCrop.y * scaleY,
+          width: completedCrop.width * scaleX,
+          height: completedCrop.height * scaleY
         };
 
         canvas.width = pixelCrop.width;
@@ -152,7 +136,7 @@ export function Editor({ image }: EditorProps) {
         }
 
         ctx.drawImage(
-          image,
+          sourceImage,
           pixelCrop.x,
           pixelCrop.y,
           pixelCrop.width,
@@ -164,38 +148,130 @@ export function Editor({ image }: EditorProps) {
         );
         
         resolve(canvas.toDataURL('image/png'));
-      };
-      
-      image.onerror = (error) => {
-        reject(error);
-      };
+      }
+      sourceImage.onerror = (error) => reject(error);
     });
   }
 
   const applyCrop = useCallback(async () => {
-    if (!completedCrop || !imageRef.current) {
-        toast({
-            variant: 'destructive',
-            title: 'Crop Error',
-            description: 'Could not apply crop. Please try again.',
-        });
-        return;
+    if (!completedCrop) {
+      toast({ variant: 'destructive', title: 'Crop Error', description: 'Could not apply crop. Please try again.' });
+      return;
     }
     
     try {
-      const croppedImageUrl = await getCroppedImg(imageRef.current, completedCrop);
+      const croppedImageUrl = await getCroppedImg();
       updateHistory(croppedImageUrl);
     } catch(e) {
-       toast({
-            variant: 'destructive',
-            title: 'Crop Failed',
-            description: (e as Error).message,
-        });
+       toast({ variant: 'destructive', title: 'Crop Failed', description: (e as Error).message });
     }
 
     setIsCropping(false);
-  }, [completedCrop, imageRef, updateHistory, toast]);
+  }, [completedCrop, activeImage, updateHistory, toast]);
 
+  const setupEraseCanvas = useCallback(() => {
+    const baseCanvas = canvasRef.current;
+    const eraseLayer = eraseCanvasRef.current;
+    const img = new window.Image();
+    img.src = activeImage;
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      if(baseCanvas && eraseLayer) {
+        const { naturalWidth, naturalHeight } = img;
+        const parent = baseCanvas.parentElement;
+        if (parent) {
+            const aspect = naturalWidth / naturalHeight;
+            const parentWidth = parent.clientWidth;
+            const parentHeight = parent.clientHeight;
+            let width = parentWidth;
+            let height = parentWidth / aspect;
+
+            if (height > parentHeight) {
+              height = parentHeight;
+              width = parentHeight * aspect;
+            }
+            
+            [baseCanvas, eraseLayer].forEach(canvas => {
+                canvas.width = width;
+                canvas.height = height;
+            });
+
+            const baseCtx = baseCanvas.getContext('2d');
+            baseCtx?.drawImage(img, 0, 0, width, height);
+
+            const eraseCtx = eraseLayer.getContext('2d');
+            if (eraseCtx) {
+                eraseCtx.clearRect(0, 0, width, height);
+            }
+        }
+      }
+    };
+  }, [activeImage]);
+
+  useEffect(() => {
+    if (isErasing) {
+      setupEraseCanvas();
+    }
+  }, [isErasing, activeImage, setupEraseCanvas]);
+
+  const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = eraseCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
+    };
+  }
+
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    setIsDrawing(true);
+    draw(e);
+  };
+  
+  const stopDrawing = () => {
+    setIsDrawing(false);
+    const eraseCtx = eraseCanvasRef.current?.getContext('2d');
+    eraseCtx?.beginPath();
+  };
+  
+  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
+    const { x, y } = getCanvasCoordinates(e);
+    const eraseCtx = eraseCanvasRef.current?.getContext('2d');
+
+    if (eraseCtx) {
+      eraseCtx.globalCompositeOperation = 'destination-out';
+      eraseCtx.lineWidth = brushSize;
+      eraseCtx.lineCap = 'round';
+      eraseCtx.lineTo(x, y);
+      eraseCtx.stroke();
+      eraseCtx.beginPath();
+      eraseCtx.moveTo(x, y);
+    }
+  };
+
+  const handleApplyErase = () => {
+      const baseCanvas = canvasRef.current;
+      const eraseLayer = eraseCanvasRef.current;
+
+      if (baseCanvas && eraseLayer) {
+        const baseCtx = baseCanvas.getContext('2d');
+        if (baseCtx) {
+            baseCtx.globalCompositeOperation = 'destination-in';
+            baseCtx.drawImage(eraseLayer, 0, 0);
+
+            const resultDataUrl = baseCanvas.toDataURL('image/png');
+            updateHistory(resultDataUrl);
+        }
+      }
+      setIsErasing(false);
+  };
+
+  const handleCancelErase = () => {
+      setIsErasing(false);
+  };
+  
   const handleExport = () => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -235,10 +311,26 @@ export function Editor({ image }: EditorProps) {
     setHistoryIndex(0);
   }
 
+  const inEditMode = isCropping || isErasing;
+
   return (
     <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)]">
       <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden">
-        {isCropping ? (
+        {isErasing && (
+          <div className="relative w-full h-full">
+            <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-contain" />
+            <canvas 
+              ref={eraseCanvasRef}
+              className="absolute inset-0 w-full h-full object-contain cursor-crosshair"
+              onMouseDown={startDrawing}
+              onMouseUp={stopDrawing}
+              onMouseOut={stopDrawing}
+              onMouseMove={draw}
+            />
+          </div>
+        )}
+
+        {isCropping && !isErasing && (
            <ReactCrop 
               crop={crop} 
               onChange={(_, percentCrop) => setCrop(percentCrop)}
@@ -250,12 +342,14 @@ export function Editor({ image }: EditorProps) {
                 alt="Cropping preview"
                 width={800}
                 height={600}
-                style={{ objectFit: 'contain', maxHeight: 'calc(100vh - 12rem)' }}
+                className="max-w-full max-h-full object-contain"
                 onLoad={onImageLoad}
                 data-ai-hint="photo edit"
               />
             </ReactCrop>
-        ) : (
+        )}
+
+        {!inEditMode && (
           <Image
             key={activeImage}
             src={activeImage}
@@ -271,12 +365,15 @@ export function Editor({ image }: EditorProps) {
       <Card className="flex flex-col">
         <CardContent className="p-4 flex-1 flex flex-col">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-headline font-bold">Editing Tools</h2>
+            <h2 className="text-lg font-headline font-bold">
+              {isErasing ? 'Erase Background' : 'Editing Tools' }
+            </h2>
+            {!isErasing && (
             <div className="flex items-center gap-1">
               <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}>
+                      <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo || inEditMode}>
                         <Undo className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
@@ -286,7 +383,7 @@ export function Editor({ image }: EditorProps) {
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo}>
+                      <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo || inEditMode}>
                         <Redo className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
@@ -296,7 +393,7 @@ export function Editor({ image }: EditorProps) {
                   </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={handleFullReset}>
+                    <Button variant="ghost" size="icon" onClick={handleFullReset} disabled={inEditMode}>
                       <RotateCcw className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
@@ -306,18 +403,44 @@ export function Editor({ image }: EditorProps) {
                 </Tooltip>
               </TooltipProvider>
             </div>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2">
+            {isErasing ? (
+               <div className="space-y-6">
+                 <div>
+                    <Label htmlFor="brush-size" className="flex items-center gap-2 mb-2">
+                      <Eraser className="w-4 h-4 text-muted-foreground" />
+                      Brush Size
+                    </Label>
+                    <Slider
+                      id="brush-size"
+                      min={5}
+                      max={100}
+                      step={1}
+                      value={[brushSize]}
+                      onValueChange={([value]) => setBrushSize(value)}
+                    />
+                 </div>
+                 <div className="flex items-center justify-center p-4 bg-muted/50 rounded-lg">
+                    <Circle className="w-20 h-20 text-foreground/20" style={{ strokeWidth: brushSize / 20 }} />
+                 </div>
+                 <div className="grid grid-cols-2 gap-2 pt-4">
+                  <Button variant="outline" onClick={handleCancelErase}>Cancel</Button>
+                  <Button onClick={handleApplyErase}>Apply Erase</Button>
+                 </div>
+               </div>
+            ) : (
             <Accordion type="multiple" defaultValue={['ai-tools', 'adjustments']} className="w-full">
               <AccordionItem value="ai-tools">
                 <AccordionTrigger className="font-semibold"><Sparkles className="mr-2 text-primary h-5 w-5"/>AI Tools</AccordionTrigger>
                 <AccordionContent className="space-y-2 pt-2 grid grid-cols-2 gap-2">
-                  <Button onClick={handleEnhance} disabled={isProcessing} className="w-full bg-primary/90 hover:bg-primary col-span-2">
+                  <Button onClick={handleEnhance} disabled={isProcessing || inEditMode} className="w-full bg-primary/90 hover:bg-primary col-span-2">
                     <Wand2 className="mr-2 h-4 w-4" /> {isProcessing && processingMessage === 'Enhancing...' ? 'Enhancing...' : 'Auto Enhance'}
                   </Button>
-                   <Button onClick={handleRemoveBackground} disabled={isProcessing} className="w-full">
-                    <Scissors className="mr-2 h-4 w-4" /> {isProcessing && processingMessage === 'Removing background...' ? 'Working...' : 'BG Remover'}
+                   <Button onClick={() => setIsErasing(true)} disabled={isProcessing || inEditMode} className="w-full">
+                    <Scissors className="mr-2 h-4 w-4" /> BG Remover
                   </Button>
                   {isProcessing && <Skeleton className="h-20 w-full col-span-2" />}
                   {reasoning && !isProcessing && (
@@ -358,6 +481,7 @@ export function Editor({ image }: EditorProps) {
                             step={1}
                             value={[state[key]]}
                             onValueChange={([value]) => updateFilter(key, value)}
+                            disabled={inEditMode}
                           />
                         </div>
                       );
@@ -369,7 +493,7 @@ export function Editor({ image }: EditorProps) {
                 <AccordionTrigger className="font-semibold">Filters</AccordionTrigger>
                 <AccordionContent className="pt-4 grid grid-cols-2 gap-2">
                   {PRESETS.map((preset) => (
-                    <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex items-center justify-start gap-2 h-12">
+                    <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex items-center justify-start gap-2 h-12" disabled={inEditMode}>
                       <span className="text-lg">{preset.icon}</span>
                       <span className="font-medium">{preset.name}</span>
                     </Button>
@@ -380,22 +504,26 @@ export function Editor({ image }: EditorProps) {
               <AccordionItem value="transform">
                 <AccordionTrigger className="font-semibold">Transform</AccordionTrigger>
                 <AccordionContent className="pt-4 grid grid-cols-2 gap-2">
-                  <Button variant="outline" onClick={() => rotate(90)}><RotateCw className="mr-2 h-4 w-4"/> Rotate</Button>
-                  <Button variant="outline" onClick={() => rotate(-90)}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
-                  <Button variant="outline" onClick={() => flip('horizontal')}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
-                  <Button variant="outline" onClick={() => flip('vertical')}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
+                  <Button variant="outline" onClick={() => rotate(90)} disabled={inEditMode}><RotateCw className="mr-2 h-4 w-4"/> Rotate</Button>
+                  <Button variant="outline" onClick={() => rotate(-90)} disabled={inEditMode}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
+                  <Button variant="outline" onClick={() => flip('horizontal')} disabled={inEditMode}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
+                  <Button variant="outline" onClick={() => flip('vertical')} disabled={inEditMode}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
                    {isCropping ? (
-                      <Button variant="secondary" onClick={applyCrop} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
+                      <>
+                        <Button variant="secondary" onClick={applyCrop} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
+                        <Button variant="ghost" onClick={() => setIsCropping(false)} className="col-span-2">Cancel</Button>
+                      </>
                     ) : (
-                      <Button variant="outline" onClick={() => setIsCropping(true)} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
+                      <Button variant="outline" onClick={() => setIsCropping(true)} className="col-span-2" disabled={inEditMode}><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
                     )}
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
+            )}
           </div>
 
           <div className="mt-auto pt-4">
-            <Button size="lg" className="w-full bg-accent hover:bg-accent/90" onClick={handleExport}>
+            <Button size="lg" className="w-full bg-accent hover:bg-accent/90" onClick={handleExport} disabled={inEditMode}>
               <Download className="mr-2 h-5 w-5"/> Export Image
             </Button>
           </div>
