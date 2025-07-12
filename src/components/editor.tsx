@@ -61,9 +61,12 @@ export function Editor({ image }: EditorProps) {
     setReasoning(null);
     try {
       const result = await enhanceImageQualityAction(activeImage);
-      setEnhancedImage(result.enhancedPhotoDataUri);
-      setActiveImage(result.enhancedPhotoDataUri);
-      setReasoning(result.reasoning);
+      if (result.enhancedPhotoDataUri) {
+        setActiveImage(result.enhancedPhotoDataUri);
+        setReasoning(result.reasoning);
+      } else {
+        throw new Error("The AI didn't return an enhanced image.");
+      }
     } catch (error) {
       toast({
         variant: 'destructive',
@@ -81,8 +84,12 @@ export function Editor({ image }: EditorProps) {
     setReasoning(null);
     try {
       const result = await removeBackgroundAction(activeImage);
-      setActiveImage(result.photoWithTransparentBackground);
-      setReasoning('The background has been removed.');
+       if (result.photoWithTransparentBackground) {
+        setActiveImage(result.photoWithTransparentBackground);
+        setReasoning('The background has been removed.');
+      } else {
+         throw new Error("The AI didn't return an image with the background removed.");
+      }
     } catch (error) {
        toast({
         variant: 'destructive',
@@ -104,39 +111,53 @@ export function Editor({ image }: EditorProps) {
     setCrop(initialCrop);
   };
   
-  const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop) => {
-    const canvas = document.createElement('canvas');
-    const scaleX = sourceImage.naturalWidth / sourceImage.width;
-    const scaleY = sourceImage.naturalHeight / sourceImage.height;
-    
-    const pixelCropX = crop.x * scaleX;
-    const pixelCropY = crop.y * scaleY;
-    const pixelCropWidth = crop.width * scaleX;
-    const pixelCropHeight = crop.height * scaleY;
+  const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop): Promise<string | null> => {
+     return new Promise((resolve) => {
+      const image = new window.Image();
+      image.src = sourceImage.src;
+      image.crossOrigin = 'anonymous';
 
-    canvas.width = pixelCropWidth;
-    canvas.height = pixelCropHeight;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scaleX = image.naturalWidth / image.width;
+        const scaleY = image.naturalHeight / image.height;
+        
+        const pixelCropX = crop.x * scaleX;
+        const pixelCropY = crop.y * scaleY;
+        const pixelCropWidth = crop.width * scaleX;
+        const pixelCropHeight = crop.height * scaleY;
 
-    ctx.drawImage(
-      sourceImage,
-      pixelCropX,
-      pixelCropY,
-      pixelCropWidth,
-      pixelCropHeight,
-      0,
-      0,
-      pixelCropWidth,
-      pixelCropHeight
-    );
-    return canvas.toDataURL('image/png');
+        canvas.width = pixelCropWidth;
+        canvas.height = pixelCropHeight;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+
+        ctx.drawImage(
+          image,
+          pixelCropX,
+          pixelCropY,
+          pixelCropWidth,
+          pixelCropHeight,
+          0,
+          0,
+          pixelCropWidth,
+          pixelCropHeight
+        );
+        resolve(canvas.toDataURL('image/png'));
+      }
+      image.onerror = () => {
+        resolve(null);
+      }
+    });
   }
 
-  const applyCrop = useCallback(() => {
+  const applyCrop = useCallback(async () => {
     if (crop && imageRef.current) {
-        const croppedImageUrl = getCroppedImg(imageRef.current, crop);
+        const croppedImageUrl = await getCroppedImg(imageRef.current, crop);
         if (croppedImageUrl) {
             setActiveImage(croppedImageUrl);
         }
@@ -145,9 +166,6 @@ export function Editor({ image }: EditorProps) {
   }, [crop]);
 
   const handleExport = () => {
-    const img = imageRef.current;
-    if (!img) return;
-
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     if (!ctx) return;

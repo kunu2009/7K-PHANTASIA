@@ -12,7 +12,6 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import wav from 'wav';
 
 const EnhanceImageQualityInputSchema = z.object({
   photoDataUri: z
@@ -35,19 +34,12 @@ export async function enhanceImageQuality(input: EnhanceImageQualityInput): Prom
   return enhanceImageQualityFlow(input);
 }
 
-const enhanceImageQualityPrompt = ai.definePrompt({
-  name: 'enhanceImageQualityPrompt',
-  input: {schema: EnhanceImageQualityInputSchema},
-  output: {schema: EnhanceImageQualityOutputSchema},
-  prompt: `You are an expert photo enhancement specialist.
+const enhanceImageQualityPromptText = `You are an expert photo enhancement specialist.
 
 You will receive a photo and your job is to enhance the quality of the photo using AI techniques. Consider the photo for things like noise, sharpness, color balance and exposure.
 
 Return the enhanced photo as a data URI. Also include a short explanation of what enhancements were performed and the reasoning behind them.
-
-Photo: {{media url=photoDataUri}}
-`,
-});
+`;
 
 const enhanceImageQualityFlow = ai.defineFlow(
   {
@@ -60,14 +52,14 @@ const enhanceImageQualityFlow = ai.defineFlow(
       model: 'googleai/gemini-2.0-flash-preview-image-generation',
       prompt: [
         {media: {url: input.photoDataUri}},
-        {text: enhanceImageQualityPrompt.prompt},
+        {text: enhanceImageQualityPromptText},
       ],
       config: {
         responseModalities: ['TEXT', 'IMAGE'],
       },
     });
 
-    if (!media) {
+    if (!media?.url) {
       throw new Error('No enhanced image returned');
     }
     if (!text) {
