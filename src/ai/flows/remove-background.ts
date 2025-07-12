@@ -47,7 +47,7 @@ const removeBackgroundFlow = ai.defineFlow(
         {text: prompt},
       ],
       config: {
-        responseModalities: ['IMAGE', 'TEXT'], // Need TEXT as well, even if we don't use it
+        responseModalities: ['IMAGE'],
       },
     });
 

@@ -1,5 +1,3 @@
-// This file is machine-generated - edit at your own risk.
-
 'use server';
 
 /**
@@ -34,13 +32,6 @@ export async function enhanceImageQuality(input: EnhanceImageQualityInput): Prom
   return enhanceImageQualityFlow(input);
 }
 
-const enhanceImageQualityPromptText = `You are an expert photo enhancement specialist.
-
-You will receive a photo and your job is to enhance the quality of the photo using AI techniques. Consider the photo for things like noise, sharpness, color balance and exposure.
-
-Return the enhanced photo as a data URI. Also include a short explanation of what enhancements were performed and the reasoning behind them.
-`;
-
 const enhanceImageQualityFlow = ai.defineFlow(
   {
     name: 'enhanceImageQualityFlow',
@@ -48,11 +39,17 @@ const enhanceImageQualityFlow = ai.defineFlow(
     outputSchema: EnhanceImageQualityOutputSchema,
   },
   async input => {
+    const prompt = `You are an expert photo enhancement specialist.
+
+You will receive a photo and your job is to enhance the quality of the photo using AI techniques. Consider the photo for things like noise, sharpness, color balance and exposure.
+
+Return the enhanced photo. Also include a short explanation of what enhancements were performed and the reasoning behind them.`;
+
     const {media, text} = await ai.generate({
       model: 'googleai/gemini-2.0-flash-preview-image-generation',
       prompt: [
         {media: {url: input.photoDataUri}},
-        {text: enhanceImageQualityPromptText},
+        {text: prompt},
       ],
       config: {
         responseModalities: ['TEXT', 'IMAGE'],

@@ -45,7 +45,6 @@ const PRESETS = [
 export function Editor({ image }: EditorProps) {
   const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
   const [activeImage, setActiveImage] = useState(image);
-  const [enhancedImage, setEnhancedImage] = useState<string | null>(null);
   const [reasoning, setReasoning] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMessage, setProcessingMessage] = useState('');
@@ -111,16 +110,16 @@ export function Editor({ image }: EditorProps) {
     setCrop(initialCrop);
   };
   
-  const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop): Promise<string | null> => {
+  const getCroppedImg = (sourceSrc: string, crop: Crop, imageElement: HTMLImageElement): Promise<string | null> => {
      return new Promise((resolve) => {
       const image = new window.Image();
-      image.src = sourceImage.src;
+      image.src = sourceSrc;
       image.crossOrigin = 'anonymous';
 
       image.onload = () => {
         const canvas = document.createElement('canvas');
-        const scaleX = image.naturalWidth / image.width;
-        const scaleY = image.naturalHeight / image.height;
+        const scaleX = image.naturalWidth / imageElement.width;
+        const scaleY = image.naturalHeight / imageElement.height;
         
         const pixelCropX = crop.x * scaleX;
         const pixelCropY = crop.y * scaleY;
@@ -157,13 +156,13 @@ export function Editor({ image }: EditorProps) {
 
   const applyCrop = useCallback(async () => {
     if (crop && imageRef.current) {
-        const croppedImageUrl = await getCroppedImg(imageRef.current, crop);
+        const croppedImageUrl = await getCroppedImg(activeImage, crop, imageRef.current);
         if (croppedImageUrl) {
             setActiveImage(croppedImageUrl);
         }
     }
     setIsCropping(false);
-  }, [crop]);
+  }, [crop, activeImage]);
 
   const handleExport = () => {
     const canvas = document.createElement('canvas');
