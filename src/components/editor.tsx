@@ -55,7 +55,6 @@ export function Editor({ image }: EditorProps) {
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<Crop>();
   const [isCropping, setIsCropping] = useState(false);
-  const [aspect, setAspect] = useState<number | undefined>(16/9);
 
   // Temporarily disable AI functions
   const handleEnhance = async () => {
@@ -68,27 +67,28 @@ export function Editor({ image }: EditorProps) {
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
     const crop = centerCrop(
-      makeAspectCrop(
         {
-          unit: '%',
-          width: 90,
+            unit: '%',
+            width: 90,
+            height: 90,
         },
-        aspect || 1,
         width,
         height
-      ),
-      width,
-      height
-    )
+    );
     setCrop(crop);
     setCompletedCrop(crop);
   };
   
   const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop): Promise<string> => {
-     return new Promise((resolve, reject) => {
+    return new Promise((resolve, reject) => {
+      const image = new window.Image();
+      image.src = sourceImage.src;
+      image.crossOrigin = 'anonymous';
+
+      image.onload = () => {
         const canvas = document.createElement('canvas');
-        const scaleX = sourceImage.naturalWidth / sourceImage.width;
-        const scaleY = sourceImage.naturalHeight / sourceImage.height;
+        const scaleX = image.naturalWidth / image.width;
+        const scaleY = image.naturalHeight / image.height;
 
         const pixelCrop = {
           x: crop.x * scaleX,
@@ -107,7 +107,7 @@ export function Editor({ image }: EditorProps) {
         }
 
         ctx.drawImage(
-          sourceImage,
+          image,
           pixelCrop.x,
           pixelCrop.y,
           pixelCrop.width,
@@ -119,6 +119,11 @@ export function Editor({ image }: EditorProps) {
         );
         
         resolve(canvas.toDataURL('image/png'));
+      };
+      
+      image.onerror = (error) => {
+        reject(error);
+      };
     });
   }
 
@@ -187,7 +192,7 @@ export function Editor({ image }: EditorProps) {
               crop={crop} 
               onChange={(_, percentCrop) => setCrop(percentCrop)}
               onComplete={(c) => setCompletedCrop(c)}
-              aspect={aspect}>
+              >
               <Image
                 ref={imageRef}
                 src={activeImage}
@@ -326,5 +331,3 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
-
-    
