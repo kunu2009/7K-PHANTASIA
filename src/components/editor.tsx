@@ -1,3 +1,4 @@
+
 'use client';
 import { useState, useRef, useCallback } from 'react';
 import Image from 'next/image';
@@ -19,7 +20,7 @@ import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
-import { enhanceImageQualityAction, removeBackgroundAction } from '@/lib/actions';
+// import { enhanceImageQualityAction, removeBackgroundAction } from '@/lib/actions';
 import { useToast } from '@/hooks/use-toast';
 import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
@@ -52,117 +53,98 @@ export function Editor({ image }: EditorProps) {
   const { toast } = useToast();
 
   const [crop, setCrop] = useState<Crop>();
+  const [completedCrop, setCompletedCrop] = useState<Crop>();
   const [isCropping, setIsCropping] = useState(false);
+  const [aspect, setAspect] = useState<number | undefined>(16/9);
 
+  // Temporarily disable AI functions
   const handleEnhance = async () => {
-    setIsProcessing(true);
-    setProcessingMessage('Enhancing...');
-    setReasoning(null);
-    try {
-      const result = await enhanceImageQualityAction(activeImage);
-      if (result.enhancedPhotoDataUri) {
-        setActiveImage(result.enhancedPhotoDataUri);
-        setReasoning(result.reasoning);
-      } else {
-        throw new Error("The AI didn't return an enhanced image.");
-      }
-    } catch (error) {
-      toast({
-        variant: 'destructive',
-        title: 'Enhancement Failed',
-        description: (error as Error).message,
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+    toast({ title: "Temporarily Disabled", description: "This feature is currently being worked on." });
   };
-  
   const handleRemoveBackground = async () => {
-    setIsProcessing(true);
-    setProcessingMessage('Removing background...');
-    setReasoning(null);
-    try {
-      const result = await removeBackgroundAction(activeImage);
-       if (result.photoWithTransparentBackground) {
-        setActiveImage(result.photoWithTransparentBackground);
-        setReasoning('The background has been removed.');
-      } else {
-         throw new Error("The AI didn't return an image with the background removed.");
-      }
-    } catch (error) {
-       toast({
-        variant: 'destructive',
-        title: 'Background Removal Failed',
-        description: (error as Error).message,
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+     toast({ title: "Temporarily Disabled", description: "This feature is currently being worked on." });
   };
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
-    const initialCrop = centerCrop(
-      makeAspectCrop({ unit: '%', width: 90 }, 16/9, width, height),
+    const crop = centerCrop(
+      makeAspectCrop(
+        {
+          unit: '%',
+          width: 90,
+        },
+        aspect || 1,
+        width,
+        height
+      ),
       width,
       height
-    );
-    setCrop(initialCrop);
+    )
+    setCrop(crop);
+    setCompletedCrop(crop);
   };
   
-  const getCroppedImg = (sourceSrc: string, crop: Crop, imageElement: HTMLImageElement): Promise<string | null> => {
-     return new Promise((resolve) => {
-      const image = new window.Image();
-      image.src = sourceSrc;
-      image.crossOrigin = 'anonymous';
-
-      image.onload = () => {
+  const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop): Promise<string> => {
+     return new Promise((resolve, reject) => {
         const canvas = document.createElement('canvas');
-        const scaleX = image.naturalWidth / imageElement.width;
-        const scaleY = image.naturalHeight / imageElement.height;
-        
-        const pixelCropX = crop.x * scaleX;
-        const pixelCropY = crop.y * scaleY;
-        const pixelCropWidth = crop.width * scaleX;
-        const pixelCropHeight = crop.height * scaleY;
+        const scaleX = sourceImage.naturalWidth / sourceImage.width;
+        const scaleY = sourceImage.naturalHeight / sourceImage.height;
 
-        canvas.width = pixelCropWidth;
-        canvas.height = pixelCropHeight;
+        const pixelCrop = {
+          x: crop.x * scaleX,
+          y: crop.y * scaleY,
+          width: crop.width * scaleX,
+          height: crop.height * scaleY
+        };
+
+        canvas.width = pixelCrop.width;
+        canvas.height = pixelCrop.height;
         
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve(null);
+          reject(new Error('Could not get canvas context'));
           return;
         }
 
         ctx.drawImage(
-          image,
-          pixelCropX,
-          pixelCropY,
-          pixelCropWidth,
-          pixelCropHeight,
+          sourceImage,
+          pixelCrop.x,
+          pixelCrop.y,
+          pixelCrop.width,
+          pixelCrop.height,
           0,
           0,
-          pixelCropWidth,
-          pixelCropHeight
+          pixelCrop.width,
+          pixelCrop.height
         );
+        
         resolve(canvas.toDataURL('image/png'));
-      }
-      image.onerror = () => {
-        resolve(null);
-      }
     });
   }
 
   const applyCrop = useCallback(async () => {
-    if (crop && imageRef.current) {
-        const croppedImageUrl = await getCroppedImg(activeImage, crop, imageRef.current);
-        if (croppedImageUrl) {
-            setActiveImage(croppedImageUrl);
-        }
+    if (!completedCrop || !imageRef.current) {
+        toast({
+            variant: 'destructive',
+            title: 'Crop Error',
+            description: 'Could not apply crop. Please try again.',
+        });
+        return;
     }
+    
+    try {
+      const croppedImageUrl = await getCroppedImg(imageRef.current, completedCrop);
+      setActiveImage(croppedImageUrl);
+    } catch(e) {
+       toast({
+            variant: 'destructive',
+            title: 'Crop Failed',
+            description: (e as Error).message,
+        });
+    }
+
     setIsCropping(false);
-  }, [crop, activeImage]);
+  }, [completedCrop]);
 
   const handleExport = () => {
     const canvas = document.createElement('canvas');
@@ -201,21 +183,24 @@ export function Editor({ image }: EditorProps) {
     <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)]">
       <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden">
         {isCropping ? (
-           <ReactCrop crop={crop} onChange={c => setCrop(c)} aspect={16 / 9}>
+           <ReactCrop 
+              crop={crop} 
+              onChange={(_, percentCrop) => setCrop(percentCrop)}
+              onComplete={(c) => setCompletedCrop(c)}
+              aspect={aspect}>
               <Image
                 ref={imageRef}
-                key={activeImage}
                 src={activeImage}
                 alt="Cropping preview"
-                fill
-                className="object-contain"
+                width={800}
+                height={600}
+                style={{ objectFit: 'contain', maxHeight: 'calc(100vh - 12rem)' }}
                 onLoad={onImageLoad}
                 data-ai-hint="photo edit"
               />
             </ReactCrop>
         ) : (
           <Image
-            ref={imageRef}
             key={activeImage}
             src={activeImage}
             alt="Editing preview"
@@ -341,3 +326,5 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
+
+    
