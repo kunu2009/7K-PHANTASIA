@@ -41,6 +41,7 @@ const PRESETS = [
   { name: 'Sunrise', icon: '🌅', settings: { contrast: 110, saturate: 140, brightness: 110, sepia: 10, hueRotate: -10 } },
 ];
 
+type EditMode = 'none' | 'crop' | 'erase';
 
 export function Editor({ image }: EditorProps) {
   const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
@@ -57,8 +58,7 @@ export function Editor({ image }: EditorProps) {
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<Crop>();
   
-  const [isCropping, setIsCropping] = useState(false);
-  const [isErasing, setIsErasing] = useState(false);
+  const [editMode, setEditMode] = useState<EditMode>('none');
   const [brushSize, setBrushSize] = useState(40);
   
   const baseCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -105,14 +105,20 @@ export function Editor({ image }: EditorProps) {
       sourceImage.crossOrigin = 'anonymous';
       
       sourceImage.onload = () => {
-        if (!completedCrop || !completedCrop.width || !completedCrop.height) {
+        if (!completedCrop?.width || !completedCrop?.height) {
             reject(new Error('Crop is not complete'));
             return;
         }
         
         const canvas = document.createElement('canvas');
-        const scaleX = sourceImage.naturalWidth / sourceImage.width;
-        const scaleY = sourceImage.naturalHeight / sourceImage.height;
+        const displayImage = imageRef.current;
+        if (!displayImage) {
+            reject(new Error('Could not get image reference'));
+            return;
+        }
+
+        const scaleX = sourceImage.naturalWidth / displayImage.width;
+        const scaleY = sourceImage.naturalHeight / displayImage.height;
 
         const pixelCrop = {
           x: completedCrop.x * scaleX,
@@ -161,7 +167,7 @@ export function Editor({ image }: EditorProps) {
        toast({ variant: 'destructive', title: 'Crop Failed', description: (e as Error).message });
     }
 
-    setIsCropping(false);
+    setEditMode('none');
   }, [completedCrop, activeImage, toast]);
 
   const setupEraseCanvas = useCallback(() => {
@@ -178,7 +184,11 @@ export function Editor({ image }: EditorProps) {
         if (parent) {
             const aspect = naturalWidth / naturalHeight;
             const parentWidth = parent.clientWidth;
-            const parentHeight = parent.clientHeight;
+            let parentHeight = parent.clientHeight;
+            if (parentHeight === 0) {
+              parentHeight = parentWidth / aspect;
+            }
+
             let width = parentWidth;
             let height = parentWidth / aspect;
 
@@ -205,22 +215,28 @@ export function Editor({ image }: EditorProps) {
   }, [activeImage]);
 
   useEffect(() => {
-    if (isErasing) {
+    if (editMode === 'erase') {
       setupEraseCanvas();
+      window.addEventListener('resize', setupEraseCanvas);
     }
-  }, [isErasing, activeImage, setupEraseCanvas]);
+    return () => {
+        window.removeEventListener('resize', setupEraseCanvas);
+    }
+  }, [editMode, activeImage, setupEraseCanvas]);
 
-  const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     const canvas = eraseCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
+    const touch = 'touches' in e ? e.touches[0] : null;
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top
+      x: (touch ? touch.clientX : (e as React.MouseEvent).clientX) - rect.left,
+      y: (touch ? touch.clientY : (e as React.MouseEvent).clientY) - rect.top
     };
   }
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     const eraseCtx = eraseCanvasRef.current?.getContext('2d');
     if (!eraseCtx) return;
     
@@ -238,7 +254,8 @@ export function Editor({ image }: EditorProps) {
     setIsDrawing(false);
   };
   
-  const draw = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     if (!isDrawing) return;
     const { x, y } = getCanvasCoordinates(e);
     const eraseCtx = eraseCanvasRef.current?.getContext('2d');
@@ -260,11 +277,11 @@ export function Editor({ image }: EditorProps) {
         const resultDataUrl = eraseLayer.toDataURL('image/png');
         updateHistory(resultDataUrl);
       }
-      setIsErasing(false);
+      setEditMode('none');
   };
 
   const handleCancelErase = () => {
-      setIsErasing(false);
+      setEditMode('none');
   };
   
   const handleExport = () => {
@@ -304,28 +321,32 @@ export function Editor({ image }: EditorProps) {
     reset();
     setHistory([image]);
     setHistoryIndex(0);
+    setEditMode('none');
   }
 
-  const inEditMode = isCropping || isErasing;
+  const inEditMode = editMode !== 'none';
 
   return (
     <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)]">
       <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden">
-        {isErasing && (
+        {editMode === 'erase' && (
           <div className="relative w-full h-full flex items-center justify-center">
             <canvas ref={baseCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
             <canvas 
               ref={eraseCanvasRef}
-              className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair"
+              className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair touch-none"
               onMouseDown={startDrawing}
               onMouseUp={stopDrawing}
               onMouseLeave={stopDrawing}
               onMouseMove={draw}
+              onTouchStart={startDrawing}
+              onTouchEnd={stopDrawing}
+              onTouchMove={draw}
             />
           </div>
         )}
 
-        {isCropping && !isErasing && (
+        {editMode === 'crop' && (
            <ReactCrop 
               crop={crop} 
               onChange={(_, percentCrop) => setCrop(percentCrop)}
@@ -344,8 +365,9 @@ export function Editor({ image }: EditorProps) {
             </ReactCrop>
         )}
 
-        {!inEditMode && (
+        {editMode === 'none' && (
           <Image
+            ref={imageRef}
             key={activeImage}
             src={activeImage}
             alt="Editing preview"
@@ -361,14 +383,14 @@ export function Editor({ image }: EditorProps) {
         <CardContent className="p-4 flex-1 flex flex-col">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-headline font-bold">
-              {isErasing ? 'Erase Background' : isCropping ? 'Crop Image' : 'Editing Tools' }
+              {editMode === 'erase' ? 'Erase Background' : editMode === 'crop' ? 'Crop Image' : 'Editing Tools' }
             </h2>
             {!inEditMode && (
             <div className="flex items-center gap-1">
               <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo || inEditMode}>
+                      <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}>
                         <Undo className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
@@ -378,7 +400,7 @@ export function Editor({ image }: EditorProps) {
                   </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo || inEditMode}>
+                      <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo}>
                         <Redo className="w-4 h-4" />
                       </Button>
                     </TooltipTrigger>
@@ -388,7 +410,7 @@ export function Editor({ image }: EditorProps) {
                   </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={handleFullReset} disabled={inEditMode}>
+                    <Button variant="ghost" size="icon" onClick={handleFullReset}>
                       <RotateCcw className="w-4 h-4" />
                     </Button>
                   </TooltipTrigger>
@@ -402,7 +424,7 @@ export function Editor({ image }: EditorProps) {
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2">
-            {isErasing ? (
+            {editMode === 'erase' ? (
                <div className="space-y-6">
                  <div>
                     <Label htmlFor="brush-size" className="flex items-center gap-2 mb-2">
@@ -426,11 +448,11 @@ export function Editor({ image }: EditorProps) {
                   <Button onClick={handleApplyErase}>Apply Erase</Button>
                  </div>
                </div>
-            ) : isCropping ? (
+            ) : editMode === 'crop' ? (
                  <div className="space-y-6">
                      <p className="text-sm text-muted-foreground">Adjust the selection on the image to crop it.</p>
                      <div className="grid grid-cols-2 gap-2 pt-4">
-                        <Button variant="outline" onClick={() => setIsCropping(false)}>Cancel</Button>
+                        <Button variant="outline" onClick={() => setEditMode('none')}>Cancel</Button>
                         <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
                      </div>
                  </div>
@@ -439,10 +461,10 @@ export function Editor({ image }: EditorProps) {
               <AccordionItem value="ai-tools">
                 <AccordionTrigger className="font-semibold"><Sparkles className="mr-2 text-primary h-5 w-5"/>AI Tools</AccordionTrigger>
                 <AccordionContent className="space-y-2 pt-2 grid grid-cols-2 gap-2">
-                  <Button onClick={() => toast({ title: 'Coming Soon!', description: 'Auto enhance will be back better than ever.'})} disabled={isProcessing || inEditMode} className="w-full bg-primary/90 hover:bg-primary col-span-2">
+                  <Button onClick={() => toast({ title: 'Coming Soon!', description: 'Auto enhance will be back better than ever.'})} disabled={isProcessing} className="w-full bg-primary/90 hover:bg-primary col-span-2">
                     <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
                   </Button>
-                   <Button onClick={() => setIsErasing(true)} disabled={isProcessing || inEditMode} className="w-full col-span-2">
+                   <Button onClick={() => setEditMode('erase')} disabled={isProcessing} className="w-full col-span-2">
                     <Scissors className="mr-2 h-4 w-4" /> Background Eraser
                   </Button>
                   {isProcessing && <Skeleton className="h-20 w-full col-span-2" />}
@@ -484,7 +506,6 @@ export function Editor({ image }: EditorProps) {
                             step={1}
                             value={[state[key]]}
                             onValueChange={([value]) => updateFilter(key, value)}
-                            disabled={inEditMode}
                           />
                         </div>
                       );
@@ -496,7 +517,7 @@ export function Editor({ image }: EditorProps) {
                 <AccordionTrigger className="font-semibold">Filters</AccordionTrigger>
                 <AccordionContent className="pt-4 grid grid-cols-2 gap-2">
                   {PRESETS.map((preset) => (
-                    <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex items-center justify-start gap-2 h-12" disabled={inEditMode}>
+                    <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex items-center justify-start gap-2 h-12">
                       <span className="text-lg">{preset.icon}</span>
                       <span className="font-medium">{preset.name}</span>
                     </Button>
@@ -507,11 +528,11 @@ export function Editor({ image }: EditorProps) {
               <AccordionItem value="transform">
                 <AccordionTrigger className="font-semibold">Transform</AccordionTrigger>
                 <AccordionContent className="pt-4 grid grid-cols-2 gap-2">
-                  <Button variant="outline" onClick={() => rotate(90)} disabled={inEditMode}><RotateCw className="mr-2 h-4 w-4"/> Rotate</Button>
-                  <Button variant="outline" onClick={() => rotate(-90)} disabled={inEditMode}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
-                  <Button variant="outline" onClick={() => flip('horizontal')} disabled={inEditMode}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
-                  <Button variant="outline" onClick={() => flip('vertical')} disabled={inEditMode}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
-                  <Button variant="outline" onClick={() => setIsCropping(true)} className="col-span-2" disabled={inEditMode}><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
+                  <Button variant="outline" onClick={() => rotate(90)}><RotateCw className="mr-2 h-4 w-4"/> Rotate</Button>
+                  <Button variant="outline" onClick={() => rotate(-90)}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
+                  <Button variant="outline" onClick={() => flip('horizontal')}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
+                  <Button variant="outline" onClick={() => flip('vertical')}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
+                  <Button variant="outline" onClick={() => setEditMode('crop')} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
