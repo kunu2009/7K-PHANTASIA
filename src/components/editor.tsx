@@ -104,7 +104,7 @@ export function Editor({ image }: EditorProps) {
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
     setCrop(centerCrop(
-      makeAspectCrop({ unit: '%', width: 90 }, 16 / 9, width, height),
+      makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
       width,
       height
     ));
@@ -689,5 +689,3 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
-
-    
