@@ -62,9 +62,10 @@ export function Editor({ image }: EditorProps) {
   const [editMode, setEditMode] = useState<EditMode>('none');
   const [brushSize, setBrushSize] = useState(40);
   
-  const baseCanvasRef = useRef<HTMLCanvasElement>(null);
   const eraseCanvasRef = useRef<HTMLCanvasElement>(null);
+  const erasePreviewCanvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
+  const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -89,7 +90,21 @@ export function Editor({ image }: EditorProps) {
   };
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
-    setCrop(undefined); // Clear previous crop
+    const { width, height } = e.currentTarget;
+    const crop = centerCrop(
+      makeAspectCrop(
+        {
+          unit: '%',
+          width: 90,
+        },
+        1, 
+        width,
+        height
+      ),
+      width,
+      height
+    );
+    setCrop(crop);
   };
   
   const getCroppedImg = (): Promise<string> => {
@@ -165,16 +180,17 @@ export function Editor({ image }: EditorProps) {
   }, [completedCrop, activeImage, toast]);
 
   const setupEraseCanvas = useCallback(() => {
-    const baseCanvas = baseCanvasRef.current;
     const eraseLayer = eraseCanvasRef.current;
-    if (!baseCanvas || !eraseLayer) return;
+    const previewLayer = erasePreviewCanvasRef.current;
+
+    if (!eraseLayer || !previewLayer) return;
 
     const img = new window.Image();
     img.src = activeImage;
     img.crossOrigin = "anonymous";
     img.onload = () => {
         const { naturalWidth, naturalHeight } = img;
-        const parent = baseCanvas.parentElement;
+        const parent = eraseLayer.parentElement;
         if (parent) {
             const aspect = naturalWidth / naturalHeight;
             const parentWidth = parent.clientWidth;
@@ -191,18 +207,18 @@ export function Editor({ image }: EditorProps) {
               width = parentHeight * aspect;
             }
             
-            [baseCanvas, eraseLayer].forEach(canvas => {
+            [eraseLayer, previewLayer].forEach(canvas => {
                 canvas.width = width;
                 canvas.height = height;
             });
 
-            const baseCtx = baseCanvas.getContext('2d');
-            baseCtx?.drawImage(img, 0, 0, width, height);
-
             const eraseCtx = eraseLayer.getContext('2d');
             if (eraseCtx) {
-                eraseCtx.clearRect(0, 0, width, height);
-                eraseCtx.drawImage(img, 0, 0, width, height);
+              eraseCtx.drawImage(img, 0, 0, width, height);
+            }
+            const previewCtx = previewLayer.getContext('2d');
+            if (previewCtx) {
+              previewCtx.clearRect(0,0, width, height);
             }
         }
     };
@@ -219,7 +235,7 @@ export function Editor({ image }: EditorProps) {
   }, [editMode, activeImage, setupEraseCanvas]);
 
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = eraseCanvasRef.current;
+    const canvas = erasePreviewCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const touch = 'touches' in e ? e.touches[0] : null;
@@ -233,47 +249,62 @@ export function Editor({ image }: EditorProps) {
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const eraseCtx = eraseCanvasRef.current?.getContext('2d');
-    if (!eraseCtx) return;
-    
     setIsDrawing(true);
     const { x, y } = getCanvasCoordinates(e);
-    eraseCtx.beginPath();
-    eraseCtx.moveTo(x, y);
+    lastPointRef.current = { x, y };
+    draw(e);
   };
   
   const stopDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    const eraseCtx = eraseCanvasRef.current?.getContext('2d');
-    if (!eraseCtx) return;
-
-    eraseCtx.closePath();
     setIsDrawing(false);
+    lastPointRef.current = null;
   };
   
   const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     if (!isDrawing) return;
-    const { x, y } = getCanvasCoordinates(e);
-    const eraseCtx = eraseCanvasRef.current?.getContext('2d');
 
-    if (eraseCtx) {
-      eraseCtx.globalCompositeOperation = 'destination-out';
-      eraseCtx.lineWidth = brushSize;
-      eraseCtx.lineCap = 'round';
-      eraseCtx.lineJoin = 'round';
-      eraseCtx.lineTo(x, y);
-      eraseCtx.stroke();
+    const previewCtx = erasePreviewCanvasRef.current?.getContext('2d');
+    if (!previewCtx) return;
+
+    const { x, y } = getCanvasCoordinates(e);
+    
+    previewCtx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+    previewCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+    previewCtx.lineWidth = brushSize;
+    previewCtx.lineCap = 'round';
+    previewCtx.lineJoin = 'round';
+    
+    previewCtx.beginPath();
+    if (lastPointRef.current) {
+      previewCtx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
     }
+    previewCtx.lineTo(x, y);
+    previewCtx.stroke();
+    previewCtx.closePath();
+
+    previewCtx.beginPath();
+    previewCtx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+    previewCtx.fill();
+    previewCtx.closePath();
+    
+    lastPointRef.current = { x, y };
   };
 
   const handleApplyErase = () => {
       const eraseLayer = eraseCanvasRef.current;
+      const previewLayer = erasePreviewCanvasRef.current;
+      if (!eraseLayer || !previewLayer) return;
 
-      if (eraseLayer) {
-        const resultDataUrl = eraseLayer.toDataURL('image/png');
-        updateHistory(resultDataUrl);
-      }
+      const eraseCtx = eraseLayer.getContext('2d');
+      if (!eraseCtx) return;
+
+      eraseCtx.globalCompositeOperation = 'destination-out';
+      eraseCtx.drawImage(previewLayer, 0, 0);
+
+      const resultDataUrl = eraseLayer.toDataURL('image/png');
+      updateHistory(resultDataUrl);
       setEditMode('none');
   };
 
@@ -351,9 +382,9 @@ export function Editor({ image }: EditorProps) {
       <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-[300px] md:min-h-0 h-full">
         {editMode === 'erase' && (
           <div className="relative w-full h-full flex items-center justify-center">
-            <canvas ref={baseCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
+            <canvas ref={eraseCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
             <canvas 
-              ref={eraseCanvasRef}
+              ref={erasePreviewCanvasRef}
               className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair touch-none"
               onMouseDown={startDrawing}
               onMouseUp={stopDrawing}
@@ -361,6 +392,7 @@ export function Editor({ image }: EditorProps) {
               onMouseMove={draw}
               onTouchStart={startDrawing}
               onTouchEnd={stopDrawing}
+              onTouchCancel={stopDrawing}
               onTouchMove={draw}
             />
           </div>
@@ -461,7 +493,8 @@ export function Editor({ image }: EditorProps) {
                     />
                  </div>
                  <div className="flex items-center justify-center p-4 bg-muted/50 rounded-lg">
-                    <Circle className="w-20 h-20 text-foreground/20" style={{ strokeWidth: brushSize / 20 }} />
+                    <div className="w-20 h-20 rounded-full bg-red-500/50 flex items-center justify-center" style={{ width: brushSize, height: brushSize }}>
+                    </div>
                  </div>
                  <div className="grid grid-cols-2 gap-2 pt-4">
                   <Button variant="outline" onClick={handleCancelErase}>Cancel</Button>
