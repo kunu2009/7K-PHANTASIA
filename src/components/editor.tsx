@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Circle } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
+import { enhanceImageQualityAction } from '@/lib/actions';
 
 interface EditorProps {
   image: string;
@@ -90,12 +91,6 @@ export function Editor({ image }: EditorProps) {
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
     setCrop(undefined); // Clear previous crop
-    const initialCrop = centerCrop(
-      makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
-      width,
-      height
-    );
-    setCrop(initialCrop);
   };
   
   const getCroppedImg = (): Promise<string> => {
@@ -229,9 +224,11 @@ export function Editor({ image }: EditorProps) {
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const touch = 'touches' in e ? e.touches[0] : null;
+    const clientX = touch ? touch.clientX : (e as React.MouseEvent).clientX;
+    const clientY = touch ? touch.clientY : (e as React.MouseEvent).clientY;
     return {
-      x: (touch ? touch.clientX : (e as React.MouseEvent).clientX) - rect.left,
-      y: (touch ? touch.clientY : (e as React.MouseEvent).clientY) - rect.top
+      x: clientX - rect.left,
+      y: clientY - rect.top
     };
   }
 
@@ -246,7 +243,8 @@ export function Editor({ image }: EditorProps) {
     eraseCtx.moveTo(x, y);
   };
   
-  const stopDrawing = () => {
+  const stopDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
     const eraseCtx = eraseCanvasRef.current?.getContext('2d');
     if (!eraseCtx) return;
 
@@ -317,6 +315,29 @@ export function Editor({ image }: EditorProps) {
     };
   };
 
+  const handleAutoEnhance = async () => {
+    setIsProcessing(true);
+    setReasoning(null);
+    try {
+      const result = await enhanceImageQualityAction(activeImage);
+      if (result.enhancedPhotoDataUri) {
+        updateHistory(result.enhancedPhotoDataUri);
+        setReasoning(result.reasoning);
+      } else {
+        throw new Error("AI enhancement failed to return an image.");
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
+      toast({
+        variant: "destructive",
+        title: "AI Enhance Failed",
+        description: errorMessage,
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const handleFullReset = () => {
     reset();
     setHistory([image]);
@@ -327,8 +348,8 @@ export function Editor({ image }: EditorProps) {
   const inEditMode = editMode !== 'none';
 
   return (
-    <div className="grid grid-rows-[minmax(0,1fr)_auto] md:grid-rows-1 md:grid-cols-3 gap-8 h-[calc(100vh-10rem)]">
-      <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-0">
+    <div className="grid md:grid-cols-3 gap-8 h-[calc(100vh-10rem)] grid-rows-[minmax(0,1fr)_auto]">
+      <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-[300px] md:min-h-0">
         {editMode === 'erase' && (
           <div className="relative w-full h-full flex items-center justify-center">
             <canvas ref={baseCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
@@ -450,7 +471,7 @@ export function Editor({ image }: EditorProps) {
                </div>
             ) : editMode === 'crop' ? (
                  <div className="space-y-6">
-                     <p className="text-sm text-muted-foreground">Adjust the selection on the image to crop it.</p>
+                     <p className="text-sm text-muted-foreground">Adjust the selection on the. image to crop it.</p>
                      <div className="grid grid-cols-2 gap-2 pt-4">
                         <Button variant="outline" onClick={() => setEditMode('none')}>Cancel</Button>
                         <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
@@ -461,13 +482,13 @@ export function Editor({ image }: EditorProps) {
               <AccordionItem value="ai-tools">
                 <AccordionTrigger className="font-semibold"><Sparkles className="mr-2 text-primary h-5 w-5"/>AI Tools</AccordionTrigger>
                 <AccordionContent className="space-y-2 pt-2 grid grid-cols-2 gap-2">
-                  <Button onClick={() => toast({ title: 'Coming Soon!', description: 'Auto enhance will be back better than ever.'})} disabled={isProcessing} className="w-full bg-primary/90 hover:bg-primary col-span-2">
-                    <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
+                  <Button onClick={handleAutoEnhance} disabled={isProcessing} className="w-full bg-primary/90 hover:bg-primary col-span-2">
+                    <Wand2 className="mr-2 h-4 w-4" /> {isProcessing ? 'Working...' : 'Auto Enhance'}
                   </Button>
                    <Button onClick={() => setEditMode('erase')} disabled={isProcessing} className="w-full col-span-2">
                     <Scissors className="mr-2 h-4 w-4" /> BG Remover
                   </Button>
-                  {isProcessing && <Skeleton className="h-20 w-full col-span-2" />}
+                  {isProcessing && !reasoning && <Skeleton className="h-20 w-full col-span-2" />}
                   {reasoning && !isProcessing && (
                     <Alert className="col-span-2">
                       <Bot className="h-4 w-4" />
