@@ -32,20 +32,6 @@ export async function enhanceImageQuality(input: EnhanceImageQualityInput): Prom
   return enhanceImageQualityFlow(input);
 }
 
-const enhanceImageQualityPrompt = ai.definePrompt({
-    name: 'enhanceImageQualityPrompt',
-    input: { schema: EnhanceImageQualityInputSchema },
-    prompt: `You are an expert photo enhancement specialist.
-
-You will receive a photo and your job is to enhance the quality of the photo using AI techniques. Consider the photo for things like noise, sharpness, color balance and exposure.
-
-Return the enhanced photo. Also include a short explanation of what enhancements were performed and the reasoning behind them.
-
-{{media url=photoDataUri}}
-`,
-});
-
-
 const enhanceImageQualityFlow = ai.defineFlow(
   {
     name: 'enhanceImageQualityFlow',
@@ -53,19 +39,28 @@ const enhanceImageQualityFlow = ai.defineFlow(
     outputSchema: EnhanceImageQualityOutputSchema,
   },
   async (input) => {
+    const prompt = `You are an expert photo enhancement specialist.
+
+You will receive a photo and your job is to enhance the quality of the photo using AI techniques. Consider the photo for things like noise, sharpness, color balance and exposure.
+
+Return the enhanced photo. Also include a short explanation of what enhancements were performed and the reasoning behind them.`;
+
     const {media, text} = await ai.generate({
       model: 'googleai/gemini-2.0-flash-preview-image-generation',
-      prompt: await enhanceImageQualityPrompt.render({input}),
+      prompt: [
+        {text: prompt},
+        {media: {url: input.photoDataUri}},
+      ],
       config: {
         responseModalities: ['TEXT', 'IMAGE'],
       },
     });
 
     if (!media?.url) {
-      throw new Error('No enhanced image returned');
+      throw new Error('No enhanced image returned from AI');
     }
     if (!text) {
-      throw new Error('No reasoning returned');
+      throw new Error('No reasoning returned from AI');
     }
 
     return {
