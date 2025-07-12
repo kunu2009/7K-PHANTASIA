@@ -21,7 +21,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Circle } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
 import { enhanceImageQualityAction } from '@/lib/actions';
@@ -49,7 +49,9 @@ export function Editor({ image }: EditorProps) {
   
   const [history, setHistory] = useState<string[]>([image]);
   const [historyIndex, setHistoryIndex] = useState(0);
-  const activeImage = history[historyIndex];
+  
+  const [activeImage, setActiveImage] = useState(history[historyIndex]);
+  const [isComparing, setIsComparing] = useState(false);
 
   const [reasoning, setReasoning] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -67,8 +69,18 @@ export function Editor({ image }: EditorProps) {
   const [isDrawing, setIsDrawing] = useState(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
+  const [eraseHistory, setEraseHistory] = useState<string[]>([]);
+  const [eraseHistoryIndex, setEraseHistoryIndex] = useState(-1);
+
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
+
+  const canUndoErase = eraseHistoryIndex > 0;
+  const canRedoErase = eraseHistoryIndex < eraseHistory.length - 1;
+
+  useEffect(() => {
+    setActiveImage(history[historyIndex]);
+  }, [history, historyIndex]);
 
   const handleUndo = () => {
     if (canUndo) {
@@ -91,20 +103,11 @@ export function Editor({ image }: EditorProps) {
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
-    const crop = centerCrop(
-      makeAspectCrop(
-        {
-          unit: '%',
-          width: 90,
-        },
-        1, 
-        width,
-        height
-      ),
+    setCrop(centerCrop(
+      makeAspectCrop({ unit: '%', width: 90 }, 16 / 9, width, height),
       width,
       height
-    );
-    setCrop(crop);
+    ));
   };
   
   const getCroppedImg = (): Promise<string> => {
@@ -178,6 +181,45 @@ export function Editor({ image }: EditorProps) {
 
     setEditMode('none');
   }, [completedCrop, activeImage, toast]);
+  
+  const saveEraseHistory = () => {
+    const canvas = erasePreviewCanvasRef.current;
+    if (!canvas) return;
+    const newHistory = eraseHistory.slice(0, eraseHistoryIndex + 1);
+    newHistory.push(canvas.toDataURL());
+    setEraseHistory(newHistory);
+    setEraseHistoryIndex(newHistory.length - 1);
+  };
+
+  const handleUndoErase = () => {
+    if (!canUndoErase) return;
+    const newIndex = eraseHistoryIndex - 1;
+    setEraseHistoryIndex(newIndex);
+    const canvas = erasePreviewCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const img = new window.Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = eraseHistory[newIndex];
+  };
+
+  const handleRedoErase = () => {
+    if (!canRedoErase) return;
+    const newIndex = eraseHistoryIndex + 1;
+    setEraseHistoryIndex(newIndex);
+    const canvas = erasePreviewCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const img = new window.Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = eraseHistory[newIndex];
+  };
 
   const setupEraseCanvas = useCallback(() => {
     const eraseLayer = eraseCanvasRef.current;
@@ -220,6 +262,10 @@ export function Editor({ image }: EditorProps) {
             if (previewCtx) {
               previewCtx.clearRect(0,0, width, height);
             }
+            // Initial state for eraser history
+            const initialHistoryImage = previewLayer.toDataURL();
+            setEraseHistory([initialHistoryImage]);
+            setEraseHistoryIndex(0);
         }
     };
   }, [activeImage]);
@@ -257,6 +303,9 @@ export function Editor({ image }: EditorProps) {
   
   const stopDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
+    if (isDrawing) {
+      saveEraseHistory();
+    }
     setIsDrawing(false);
     lastPointRef.current = null;
   };
@@ -376,6 +425,7 @@ export function Editor({ image }: EditorProps) {
   }
 
   const inEditMode = editMode !== 'none';
+  const displayedImage = isComparing ? image : activeImage;
 
   return (
     <div className="grid md:grid-cols-3 gap-8 h-full md:h-[calc(100vh-10rem)] grid-rows-[minmax(0,1fr)_auto] md:grid-rows-1">
@@ -410,7 +460,7 @@ export function Editor({ image }: EditorProps) {
                 alt="Cropping preview"
                 width={800}
                 height={600}
-                className="max-w-full max-h-full object-contain"
+                className="max-w-full max-h-[calc(100vh-16rem)] object-contain"
                 onLoad={onImageLoad}
                 data-ai-hint="photo edit"
               />
@@ -420,12 +470,12 @@ export function Editor({ image }: EditorProps) {
         {editMode === 'none' && (
           <Image
             ref={imageRef}
-            key={activeImage}
-            src={activeImage}
+            key={displayedImage}
+            src={displayedImage}
             alt="Editing preview"
             fill
             className="object-contain transition-all duration-300"
-            style={{ filter: cssFilters, transform: cssTransform }}
+            style={isComparing ? {} : { filter: cssFilters, transform: cssTransform }}
             data-ai-hint="photo edit"
           />
         )}
@@ -440,6 +490,23 @@ export function Editor({ image }: EditorProps) {
             {!inEditMode && (
             <div className="flex items-center gap-1">
               <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                       <Button 
+                         variant="ghost" 
+                         size="icon" 
+                         onMouseDown={() => setIsComparing(true)}
+                         onMouseUp={() => setIsComparing(false)}
+                         onTouchStart={() => setIsComparing(true)}
+                         onTouchEnd={() => setIsComparing(false)}
+                       >
+                        <Layers className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Hold to Compare</p>
+                    </TooltipContent>
+                  </Tooltip>
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}>
@@ -496,6 +563,26 @@ export function Editor({ image }: EditorProps) {
                     <div className="w-20 h-20 rounded-full bg-red-500/50 flex items-center justify-center" style={{ width: brushSize, height: brushSize }}>
                     </div>
                  </div>
+                 <div className="flex items-center justify-center gap-2">
+                     <TooltipProvider>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={handleUndoErase} disabled={!canUndoErase}>
+                                    <Undo className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Undo Stroke</p></TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={handleRedoErase} disabled={!canRedoErase}>
+                                    <Redo className="w-4 h-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent><p>Redo Stroke</p></TooltipContent>
+                        </Tooltip>
+                     </TooltipProvider>
+                 </div>
                  <div className="grid grid-cols-2 gap-2 pt-4">
                   <Button variant="outline" onClick={handleCancelErase}>Cancel</Button>
                   <Button onClick={handleApplyErase}>Apply Erase</Button>
@@ -503,7 +590,7 @@ export function Editor({ image }: EditorProps) {
                </div>
             ) : editMode === 'crop' ? (
                  <div className="space-y-6">
-                     <p className="text-sm text-muted-foreground">Adjust the selection on the. image to crop it.</p>
+                     <p className="text-sm text-muted-foreground">Adjust the selection on the image to crop it.</p>
                      <div className="grid grid-cols-2 gap-2 pt-4">
                         <Button variant="outline" onClick={() => setEditMode('none')}>Cancel</Button>
                         <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
@@ -602,3 +689,5 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
+
+    
