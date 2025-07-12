@@ -38,8 +38,8 @@ const removeBackgroundFlow = ai.defineFlow(
     outputSchema: RemoveBackgroundOutputSchema,
   },
   async input => {
-    const prompt = `Given the following image, remove the background completely and make it transparent. Return only the resulting image.`;
-    
+    const prompt = `Given the following image, remove the background completely and make it transparent. The output should be a PNG with a transparent background. Return only the resulting image.`;
+
     const {media} = await ai.generate({
       model: 'googleai/gemini-2.0-flash-preview-image-generation',
       prompt: [

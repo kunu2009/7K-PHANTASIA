@@ -24,6 +24,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
 import { Skeleton } from './ui/skeleton';
+import { removeBackgroundAction } from '@/lib/actions';
 
 interface EditorProps {
   image: string;
@@ -84,42 +85,56 @@ export function Editor({ image }: EditorProps) {
   const handleEnhance = async () => {
     toast({ title: "Temporarily Disabled", description: "This feature is currently being worked on." });
   };
+  
   const handleRemoveBackground = async () => {
-     toast({ title: "Temporarily Disabled", description: "This feature is currently being worked on." });
+    setIsProcessing(true);
+    setProcessingMessage('Removing background...');
+    setReasoning(null);
+    try {
+      const result = await removeBackgroundAction(activeImage);
+      if (result.photoWithTransparentBackground) {
+        updateHistory(result.photoWithTransparentBackground);
+        toast({
+          title: 'Background Removed',
+          description: 'The background was successfully removed from the image.',
+        });
+      } else {
+        throw new Error('The AI did not return an image.');
+      }
+    } catch (error) {
+      toast({
+        variant: 'destructive',
+        title: 'Background Removal Failed',
+        description: (error as Error).message || 'An unknown error occurred.',
+      });
+    } finally {
+      setIsProcessing(false);
+      setProcessingMessage('');
+    }
   };
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
-    const crop = centerCrop(
-        makeAspectCrop(
-            {
-                unit: '%',
-                width: 90,
-            },
-            1,
-            width,
-            height
-        ),
+    setCrop(
+      centerCrop(
+        makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
         width,
         height
+      )
     );
-    setCrop(crop);
-    setCompletedCrop(crop);
   };
   
   const getCroppedImg = (sourceImage: HTMLImageElement, crop: Crop): Promise<string> => {
     return new Promise((resolve, reject) => {
-      // Ensure the image is loaded before we try to crop it.
       const image = new window.Image();
       image.src = sourceImage.src;
-      image.crossOrigin = 'anonymous'; // Important for canvas operations
+      image.crossOrigin = 'anonymous'; 
 
       image.onload = () => {
         const canvas = document.createElement('canvas');
         const scaleX = image.naturalWidth / image.width;
         const scaleY = image.naturalHeight / image.height;
 
-        // We need to account for the original image dimensions
         const pixelCrop = {
           x: crop.x * scaleX,
           y: crop.y * scaleY,
@@ -179,7 +194,7 @@ export function Editor({ image }: EditorProps) {
     }
 
     setIsCropping(false);
-  }, [completedCrop, history, historyIndex, toast]);
+  }, [completedCrop, imageRef, updateHistory, toast]);
 
   const handleExport = () => {
     const canvas = document.createElement('canvas');
@@ -199,7 +214,7 @@ export function Editor({ image }: EditorProps) {
         const originalHeight = originalImage.naturalHeight;
 
         canvas.width = originalWidth * absCos + originalHeight * absSin;
-        canvas.height = originalWidth * absSin + originalWidth * absCos;
+        canvas.height = originalHeight * absCos + originalWidth * absSin;
         
         ctx.filter = cssFilters;
         ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -389,5 +404,3 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
-
-    
