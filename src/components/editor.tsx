@@ -123,12 +123,14 @@ export function Editor({ image }: EditorProps) {
   const handleUndo = () => {
     if (canUndo) {
       setHistoryIndex(historyIndex - 1);
+      reset(); // Reset filters when undoing
     }
   };
 
   const handleRedo = () => {
     if (canRedo) {
       setHistoryIndex(historyIndex + 1);
+      reset(); // Reset filters when redoing
     }
   };
 
@@ -577,10 +579,13 @@ export function Editor({ image }: EditorProps) {
   };
 
   const handleApplyInpaint = async () => {
-    const previewLayer = previewCanvasRef.current;
-    if (!previewLayer) return;
-
     setIsProcessing(true);
+    const previewLayer = previewCanvasRef.current;
+    if (!previewLayer) {
+        setIsProcessing(false);
+        return;
+    }
+
     try {
       // Create a new canvas to generate the black and white mask
       const maskCanvas = document.createElement('canvas');
@@ -614,6 +619,10 @@ export function Editor({ image }: EditorProps) {
         photoDataUri: activeImage,
         maskDataUri: maskDataUri,
       });
+
+      if (!result?.inpaintedPhotoDataUri) {
+          throw new Error("The AI didn't return an image. Please try again.");
+      }
       updateHistory(result.inpaintedPhotoDataUri);
     } catch (e) {
       toast({ variant: 'destructive', title: 'Inpainting Failed', description: (e as Error).message });
@@ -938,6 +947,23 @@ export function Editor({ image }: EditorProps) {
       setWatermark(null);
       setSelectedObjectId({id: null, type: 'none'});
     }
+  };
+
+  const handleApplyFilters = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const sourceImage = new window.Image();
+    sourceImage.src = activeImage;
+    sourceImage.crossOrigin = 'anonymous';
+    sourceImage.onload = () => {
+        canvas.width = sourceImage.naturalWidth;
+        canvas.height = sourceImage.naturalHeight;
+        if (!ctx) return;
+        ctx.filter = cssFilters;
+        ctx.drawImage(sourceImage, 0, 0);
+        updateHistory(canvas.toDataURL('image/png'));
+        reset();
+    };
   };
   
   const handleExport = () => {
@@ -1399,6 +1425,7 @@ export function Editor({ image }: EditorProps) {
                         </div>
                       );
                   })}
+                   <Button onClick={handleApplyFilters} className="w-full">Apply Adjustments</Button>
                 </AccordionContent>
               </AccordionItem>
 
@@ -1442,5 +1469,3 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
-
-    
