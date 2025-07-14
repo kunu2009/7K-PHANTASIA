@@ -22,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Underline, CaseSensitive, Pilcrow } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic } from 'lucide-react';
 import type { EditorState, TextElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 
@@ -45,6 +45,7 @@ const PRESETS = [
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
 type EditMode = 'none' | 'crop' | 'erase' | 'text';
+type TextInteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
 
 const FONT_FACES = [
   { name: 'PT Sans', value: 'PT Sans, sans-serif' },
@@ -54,6 +55,9 @@ const FONT_FACES = [
   { name: 'Pacifico', value: 'Pacifico, cursive' },
   { name: 'Bebas Neue', value: 'Bebas Neue, sans-serif' },
 ];
+
+const HANDLE_SIZE = 8;
+const ROTATION_HANDLE_OFFSET = 25;
 
 export function Editor({ image }: EditorProps) {
   const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
@@ -65,7 +69,6 @@ export function Editor({ image }: EditorProps) {
   const [isComparing, setIsComparing] = useState(false);
 
   const imageRef = useRef<HTMLImageElement>(null);
-  const textCanvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
 
   const [crop, setCrop] = useState<Crop>();
@@ -83,10 +86,11 @@ export function Editor({ image }: EditorProps) {
   const [eraseHistoryIndex, setEraseHistoryIndex] = useState(-1);
 
   // Text state
+  const textCanvasRef = useRef<HTMLCanvasElement>(null);
   const [textElements, setTextElements] = useState<TextElement[]>([]);
   const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
-  const [isDraggingText, setIsDraggingText] = useState(false);
-  const dragOffsetRef = useRef<{ x: number, y: number }>({ x: 0, y: 0 });
+  const [textInteractionMode, setTextInteractionMode] = useState<TextInteractionMode>('none');
+  const interactionStartRef = useRef<{ x: number, y: number, text?: TextElement }>({ x: 0, y: 0 });
 
   const selectedText = textElements.find(t => t.id === selectedTextId);
 
@@ -108,7 +112,7 @@ export function Editor({ image }: EditorProps) {
 
   const handleRedo = () => {
     if (canRedo) {
-      setHistoryIndex(historyIndex + 1);
+      setHistoryIndex(newHistory.length - 1);
     }
   };
 
@@ -288,6 +292,16 @@ export function Editor({ image }: EditorProps) {
     };
   }, [activeImage]);
 
+  const getTextMetrics = (text: TextElement, ctx: CanvasRenderingContext2D) => {
+    const fontStyle = `${text.italic ? 'italic' : ''} ${text.bold ? 'bold' : ''} ${text.fontSize}px "${text.fontFamily}"`;
+    ctx.font = fontStyle;
+    const metrics = ctx.measureText(text.text);
+    return {
+      width: metrics.width,
+      height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
+    };
+  }
+
   const drawTextOnCanvas = useCallback(() => {
     const canvas = textCanvasRef.current;
     const img = imageRef.current;
@@ -317,21 +331,59 @@ export function Editor({ image }: EditorProps) {
       }
       
       if(text.stroke) {
-        ctx.strokeStyle = 'black'; // Or make this configurable
+        ctx.strokeStyle = 'black'; 
         ctx.lineWidth = 2;
       }
 
       ctx.translate(text.x, text.y);
       ctx.rotate(text.rotation * Math.PI / 180);
-
-      if (text.stroke) {
-        ctx.strokeText(text.text, 0, 0);
-      }
+      
+      if (text.stroke) ctx.strokeText(text.text, 0, 0);
       ctx.fillText(text.text, 0, 0);
+
       ctx.restore();
+
+      if (selectedTextId === text.id) {
+          const { width, height } = getTextMetrics(text, ctx);
+          const padding = 10;
+          const boxWidth = width + padding * 2;
+          const boxHeight = height + padding * 2;
+          
+          ctx.save();
+          ctx.translate(text.x, text.y);
+          ctx.rotate(text.rotation * Math.PI / 180);
+          
+          ctx.strokeStyle = 'hsl(var(--primary))';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([5, 5]);
+          ctx.strokeRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
+
+          // Draw handles
+          ctx.setLineDash([]);
+          ctx.fillStyle = 'hsl(var(--background))';
+          
+          // Rotation handle
+          ctx.beginPath();
+          ctx.moveTo(0, -boxHeight / 2);
+          ctx.lineTo(0, -boxHeight / 2 - ROTATION_HANDLE_OFFSET);
+          ctx.stroke();
+
+          ctx.beginPath();
+          ctx.arc(0, -boxHeight / 2 - ROTATION_HANDLE_OFFSET, HANDLE_SIZE / 2, 0, 2 * Math.PI);
+          ctx.fill();
+          ctx.stroke();
+
+          // Resize handle (bottom right)
+          ctx.beginPath();
+          ctx.rect(boxWidth / 2 - HANDLE_SIZE / 2, boxHeight / 2 - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+          ctx.fill();
+          ctx.stroke();
+          
+          ctx.restore();
+      }
     });
 
-  }, [textElements]);
+  }, [textElements, selectedTextId]);
 
   useEffect(() => {
     if (editMode === 'erase') {
@@ -453,36 +505,121 @@ export function Editor({ image }: EditorProps) {
     setTextElements(textElements.map(t => t.id === id ? { ...t, ...updates } : t));
   };
   
-  const handleTextCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    const { x, y } = getCanvasCoordinates(e);
-    const clickedText = textElements.find(text => {
-      // Basic bounding box collision detection
-      const textWidth = text.fontSize * text.text.length / 2; // rough estimate
-      return x > text.x - textWidth / 2 && x < text.x + textWidth / 2 &&
-             y > text.y - text.fontSize / 2 && y < text.y + text.fontSize / 2;
-    });
+  const getHitRegion = (x: number, y: number, text: TextElement): TextInteractionMode => {
+    const canvas = textCanvasRef.current;
+    if (!canvas) return 'none';
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return 'none';
 
-    if (clickedText) {
-      setSelectedTextId(clickedText.id);
-      setIsDraggingText(true);
-      dragOffsetRef.current = { x: x - clickedText.x, y: y - clickedText.y };
+    const { width, height } = getTextMetrics(text, ctx);
+    const padding = 10;
+    const boxWidth = width + padding * 2;
+    const boxHeight = height + padding * 2;
+
+    const angle = -text.rotation * Math.PI / 180;
+    const s = Math.sin(angle);
+    const c = Math.cos(angle);
+
+    const localX = (x - text.x) * c - (y - text.y) * s;
+    const localY = (x - text.x) * s + (y - text.y) * c;
+    
+    // Check rotation handle
+    const rotHandleX = 0;
+    const rotHandleY = -boxHeight / 2 - ROTATION_HANDLE_OFFSET;
+    if (Math.hypot(localX - rotHandleX, localY - rotHandleY) < HANDLE_SIZE) {
+        return 'rotating';
+    }
+    
+    // Check resize handle
+    const resizeHandleX = boxWidth / 2;
+    const resizeHandleY = boxHeight / 2;
+    if (localX > resizeHandleX - HANDLE_SIZE && localX < resizeHandleX + HANDLE_SIZE &&
+        localY > resizeHandleY - HANDLE_SIZE && localY < resizeHandleY + HANDLE_SIZE) {
+        return 'resizing';
+    }
+
+    // Check main body for dragging
+    if (Math.abs(localX) < boxWidth / 2 && Math.abs(localY) < boxHeight / 2) {
+        return 'dragging';
+    }
+
+    return 'none';
+  }
+
+
+  const handleCanvasInteractionStart = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const { x, y } = getCanvasCoordinates(e);
+    
+    let interaction: TextInteractionMode = 'none';
+    let clickedText: TextElement | undefined;
+
+    // Check for interaction with the currently selected text first
+    if (selectedText) {
+        interaction = getHitRegion(x, y, selectedText);
+        if(interaction !== 'none') {
+            clickedText = selectedText;
+        }
+    }
+    
+    // If no interaction with selected text, check other text elements
+    if (interaction === 'none') {
+        for (let i = textElements.length - 1; i >= 0; i--) {
+            const text = textElements[i];
+            const hit = getHitRegion(x, y, text);
+            if (hit !== 'none') {
+                interaction = hit;
+                clickedText = text;
+                setSelectedTextId(text.id);
+                break;
+            }
+        }
+    }
+    
+    if (clickedText && interaction !== 'none') {
+        setTextInteractionMode(interaction);
+        interactionStartRef.current = { x, y, text: clickedText };
     } else {
-      setSelectedTextId(null);
+        setSelectedTextId(null);
+        setTextInteractionMode('none');
     }
   };
   
-  const handleTextCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (isDraggingText && selectedTextId) {
-      const { x, y } = getCanvasCoordinates(e);
-      updateTextElement(selectedTextId, {
-        x: x - dragOffsetRef.current.x,
-        y: y - dragOffsetRef.current.y
-      });
+  const handleCanvasInteractionMove = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    if (textInteractionMode === 'none' || !selectedTextId) return;
+    
+    const { x, y } = getCanvasCoordinates(e);
+    const start = interactionStartRef.current;
+    if (!start.text) return;
+    
+    if (textInteractionMode === 'dragging') {
+        updateTextElement(selectedTextId, {
+            x: start.text.x + (x - start.x),
+            y: start.text.y + (y - start.y)
+        });
+    } else if (textInteractionMode === 'resizing') {
+        const dX = x - selectedText.x;
+        const dY = y - selectedText.y;
+        const startDx = start.x - start.text.x;
+        const startDy = start.y - start.text.y;
+        
+        const dist = Math.hypot(dX, dY);
+        const startDist = Math.hypot(startDx, startDy);
+
+        if (startDist > 0) {
+            const scale = dist / startDist;
+            const newFontSize = Math.max(10, start.text.fontSize * scale);
+            updateTextElement(selectedTextId, { fontSize: newFontSize });
+        }
+    } else if (textInteractionMode === 'rotating') {
+        const angle = Math.atan2(y - selectedText.y, x - selectedText.x) * 180 / Math.PI;
+        updateTextElement(selectedTextId, { rotation: angle + 90 });
     }
   };
 
-  const handleTextCanvasMouseUp = () => {
-    setIsDraggingText(false);
+  const handleCanvasInteractionEnd = () => {
+    setTextInteractionMode('none');
   };
 
   const handleApplyText = () => {
@@ -582,6 +719,7 @@ export function Editor({ image }: EditorProps) {
     setHistory([image]);
     setHistoryIndex(0);
     setEditMode('none');
+    setTextElements([]);
   }
 
   const inEditMode = editMode !== 'none';
@@ -645,10 +783,14 @@ export function Editor({ image }: EditorProps) {
                     <canvas 
                         ref={textCanvasRef}
                         className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-move touch-none"
-                        onMouseDown={handleTextCanvasMouseDown}
-                        onMouseMove={handleTextCanvasMouseMove}
-                        onMouseUp={handleTextCanvasMouseUp}
-                        onMouseLeave={handleTextCanvasMouseUp}
+                        onMouseDown={handleCanvasInteractionStart}
+                        onMouseMove={handleCanvasInteractionMove}
+                        onMouseUp={handleCanvasInteractionEnd}
+                        onMouseLeave={handleCanvasInteractionEnd}
+                        onTouchStart={handleCanvasInteractionStart}
+                        onTouchMove={handleCanvasInteractionMove}
+                        onTouchEnd={handleCanvasInteractionEnd}
+                        onTouchCancel={handleCanvasInteractionEnd}
                     />
                   )}
             </div>
@@ -817,7 +959,7 @@ export function Editor({ image }: EditorProps) {
                             <Label htmlFor="stroke" className="flex items-center gap-2">Stroke</Label>
                             <Switch id="stroke" checked={selectedText.stroke} onCheckedChange={c => updateTextElement(selectedText.id, {stroke: c})} />
                          </div>
-                         <Button variant="destructive-outline" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedTextId))}>Remove Text</Button>
+                         <Button variant="destructive" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedTextId))}>Remove Text</Button>
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-2 pt-4">
@@ -917,3 +1059,5 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
+
+    
