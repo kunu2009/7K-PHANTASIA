@@ -22,11 +22,12 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, Menu, X } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement, WatermarkElement, ImageElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction } from '@/lib/actions';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
+import { BottomNavButton } from './bottom-nav-button';
 
 
 interface EditorProps {
@@ -51,6 +52,7 @@ const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110
 type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
 type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark' | 'image';
+type Panel = 'ai' | 'adjust' | 'filter' | 'transform' | 'none';
 
 const FONT_FACES = [
   { name: 'PT Sans', value: 'PT Sans, sans-serif' },
@@ -72,7 +74,7 @@ const ASPECT_RATIOS = [
 const HANDLE_SIZE = 8;
 const ROTATION_HANDLE_OFFSET = 25;
 
-export function Editor({ image }: EditorProps) {
+export function Editor({ image, onReset }: EditorProps) {
   const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
   
   const [history, setHistory] = useState<string[]>([image]);
@@ -81,7 +83,8 @@ export function Editor({ image }: EditorProps) {
   const activeImage = history[historyIndex];
   const [isComparing, setIsComparing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-
+  const [isPanelOpen, setIsPanelOpen] = useState(true);
+  const [activePanel, setActivePanel] = useState<Panel>('ai');
 
   const imageRef = useRef<HTMLImageElement>(null);
   const overlayImageInputRef = useRef<HTMLInputElement>(null);
@@ -1097,6 +1100,7 @@ export function Editor({ image }: EditorProps) {
     setStickerElements([]);
     setWatermark(null);
     setSelectedObjectId({id: null, type: 'none'});
+    onReset();
   }
   
   const cancelObjectEditing = () => {
@@ -1108,473 +1112,535 @@ export function Editor({ image }: EditorProps) {
       setSelectedObjectId({id: null, type: 'none'})
   };
 
+  const openPanel = (panel: Panel) => {
+    setActivePanel(panel);
+    setIsPanelOpen(true);
+  }
+
   const inEditMode = editMode !== 'none';
   const displayedImage = isComparing ? image : activeImage;
   const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image';
   const inDrawingMode = editMode === 'erase' || editMode === 'inpaint';
-
-  return (
-    <div className="grid md:grid-cols-3 gap-8 h-full md:h-[calc(100vh-10rem)] grid-rows-[minmax(0,1fr)_auto] md:grid-rows-1">
-      <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-[300px] md:min-h-0 h-full">
-        {inDrawingMode && (
-          <div className="relative w-full h-full flex items-center justify-center">
-            <canvas ref={drawingCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
-            <canvas 
-              ref={previewCanvasRef}
-              className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair touch-none"
-              onMouseDown={startDrawing}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
-              onMouseMove={draw}
-              onTouchStart={startDrawing}
-              onTouchEnd={stopDrawing}
-              onTouchCancel={stopDrawing}
-              onTouchMove={draw}
-            />
-          </div>
-        )}
-
-        {editMode === 'crop' && (
-           <ReactCrop 
-              crop={crop} 
-              onChange={(_, percentCrop) => setCrop(percentCrop)}
-              onComplete={(c) => setCompletedCrop(c)}
-              aspect={aspect}
-              >
-              <Image
-                ref={imageRef}
-                src={activeImage}
-                alt="Cropping preview"
-                width={800}
-                height={600}
-                className="max-w-full max-h-[calc(100vh-16rem)] object-contain"
-                onLoad={onImageLoad}
-                data-ai-hint="photo edit"
+  
+  const mainContent = () => {
+    if (inDrawingMode) {
+       return (
+         <div className="space-y-6">
+           <div>
+              <Label htmlFor="brush-size" className="flex items-center gap-2 mb-2">
+                <Eraser className="w-4 h-4 text-muted-foreground" />
+                Brush Size
+              </Label>
+              <Slider
+                id="brush-size"
+                min={5}
+                max={100}
+                step={1}
+                value={[brushSize]}
+                onValueChange={([value]) => setBrushSize(value)}
               />
-            </ReactCrop>
-        )}
-        
-        {(editMode === 'none' || inObjectMode) && (
-            <div className="relative w-full h-full flex items-center justify-center">
-                 <Image
-                    ref={imageRef}
-                    key={displayedImage}
-                    src={displayedImage}
-                    alt="Editing preview"
-                    width={1000}
-                    height={1000}
-                    className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
-                    style={isComparing ? {} : { filter: cssFilters, transform: cssTransform }}
-                    data-ai-hint="photo edit"
-                    onLoad={drawObjectsOnCanvas}
-                  />
-                  {inObjectMode && (
-                    <canvas 
-                        ref={objectCanvasRef}
-                        className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-move touch-none"
-                        onMouseDown={handleCanvasInteractionStart}
-                        onMouseMove={handleCanvasInteractionMove}
-                        onMouseUp={handleCanvasInteractionEnd}
-                        onMouseLeave={handleCanvasInteractionEnd}
-                        onTouchStart={handleCanvasInteractionStart}
-                        onTouchMove={handleCanvasInteractionMove}
-                        onTouchEnd={handleCanvasInteractionEnd}
-                        onTouchCancel={handleCanvasInteractionEnd}
-                    />
-                  )}
-            </div>
-        )}
-
-        {isProcessing && (
-          <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center z-10">
-              <Loader className="w-12 h-12 animate-spin text-primary" />
-              <p className="mt-4 text-lg">AI is thinking...</p>
-          </div>
-        )}
-
-      </div>
-
-      <Card className="flex flex-col min-h-0">
-        <CardContent className="p-4 flex-1 flex flex-col min-h-0">
-          <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-headline font-bold">
-              {editMode === 'erase' ? 'Background Eraser' : 
-               editMode === 'inpaint' ? 'Erase Tool' :
-               editMode === 'crop' ? 'Crop Image' : 
-               editMode === 'text' ? 'Add Text' :
-               editMode === 'watermark' ? 'Add Watermark' :
-               editMode === 'stickers' ? 'Add Stickers' : 
-               editMode === 'image' ? 'Add Image Layer' : 'Editing Tools' }
-            </h2>
-            {!inEditMode && (
-            <div className="flex items-center gap-1">
-              <TooltipProvider>
+           </div>
+           <div className="flex items-center justify-center p-4 bg-muted/50 rounded-lg">
+              <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ 
+                  width: brushSize, 
+                  height: brushSize,
+                  backgroundColor: editMode === 'erase' ? 'rgba(255,0,0,0.5)' : 'rgba(0,0,255,0.5)'
+               }}>
+              </div>
+           </div>
+           <div className="flex items-center justify-center gap-2">
+               <TooltipProvider>
                   <Tooltip>
-                    <TooltipTrigger asChild>
-                       <Button 
-                         variant="ghost" 
-                         size="icon" 
-                         onMouseDown={() => setIsComparing(true)}
-                         onMouseUp={() => setIsComparing(false)}
-                         onTouchStart={() => setIsComparing(true)}
-                         onTouchEnd={() => setIsComparing(false)}
-                       >
-                        <Layers className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Hold to Compare</p>
-                    </TooltipContent>
+                      <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" onClick={handleUndoDraw} disabled={!canUndoDraw}>
+                              <Undo className="w-4 h-4" />
+                          </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Undo Stroke</p></TooltipContent>
                   </Tooltip>
                   <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}>
-                        <Undo className="w-4 h-4" />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Undo</p>
-                    </TooltipContent>
+                      <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" onClick={handleRedoDraw} disabled={!canRedoDraw}>
+                              <Redo className="w-4 h-4" />
+                          </Button>
+                      </TooltipTrigger>
+                      <TooltipContent><p>Redo Stroke</p></TooltipContent>
                   </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo}>
-                        <Redo className="w-4 h-4" />
+               </TooltipProvider>
+           </div>
+           <div className="grid grid-cols-2 gap-2 pt-4">
+            <Button variant="outline" onClick={handleCancelDrawing}>Cancel</Button>
+            <Button onClick={editMode === 'erase' ? handleApplyErase : handleApplyInpaint}>Apply</Button>
+           </div>
+         </div>
+      );
+    }
+    if (editMode === 'crop') {
+      return (
+           <div className="space-y-4">
+              <Label className="flex items-center gap-2">
+                  <Ratio className="w-4 h-4 text-muted-foreground" /> Aspect Ratio
+              </Label>
+              <div className="grid grid-cols-5 gap-2">
+                  {ASPECT_RATIOS.map(ratio => (
+                      <Button 
+                          key={ratio.name}
+                          variant={aspect === ratio.value ? 'secondary' : 'outline'}
+                          onClick={() => onAspectChange(ratio.value)}
+                          className="text-xs"
+                      >
+                          {ratio.name}
                       </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <p>Redo</p>
-                    </TooltipContent>
-                  </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={handleFullReset}>
-                      <RotateCcw className="w-4 h-4" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Reset All</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-            )}
-          </div>
-
-          <div className="flex-1 overflow-y-auto pr-2 min-h-0">
-            {inDrawingMode ? (
-               <div className="space-y-6">
-                 <div>
-                    <Label htmlFor="brush-size" className="flex items-center gap-2 mb-2">
-                      <Eraser className="w-4 h-4 text-muted-foreground" />
-                      Brush Size
-                    </Label>
-                    <Slider
-                      id="brush-size"
-                      min={5}
-                      max={100}
-                      step={1}
-                      value={[brushSize]}
-                      onValueChange={([value]) => setBrushSize(value)}
-                    />
-                 </div>
-                 <div className="flex items-center justify-center p-4 bg-muted/50 rounded-lg">
-                    <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ 
-                        width: brushSize, 
-                        height: brushSize,
-                        backgroundColor: editMode === 'erase' ? 'rgba(255,0,0,0.5)' : 'rgba(0,0,255,0.5)'
-                     }}>
-                    </div>
-                 </div>
-                 <div className="flex items-center justify-center gap-2">
-                     <TooltipProvider>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={handleUndoDraw} disabled={!canUndoDraw}>
-                                    <Undo className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Undo Stroke</p></TooltipContent>
-                        </Tooltip>
-                        <Tooltip>
-                            <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={handleRedoDraw} disabled={!canRedoDraw}>
-                                    <Redo className="w-4 h-4" />
-                                </Button>
-                            </TooltipTrigger>
-                            <TooltipContent><p>Redo Stroke</p></TooltipContent>
-                        </Tooltip>
-                     </TooltipProvider>
-                 </div>
-                 <div className="grid grid-cols-2 gap-2 pt-4">
-                  <Button variant="outline" onClick={handleCancelDrawing}>Cancel</Button>
-                  <Button onClick={editMode === 'erase' ? handleApplyErase : handleApplyInpaint}>Apply</Button>
-                 </div>
+                  ))}
+              </div>
+               <p className="text-sm text-muted-foreground pt-4">Adjust the selection on the image to crop it.</p>
+               <div className="grid grid-cols-2 gap-2 pt-2">
+                  <Button variant="outline" onClick={() => setEditMode('none')}>Cancel</Button>
+                  <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
                </div>
-            ) : editMode === 'crop' ? (
-                 <div className="space-y-4">
-                    <Label className="flex items-center gap-2">
-                        <Ratio className="w-4 h-4 text-muted-foreground" /> Aspect Ratio
-                    </Label>
-                    <div className="grid grid-cols-5 gap-2">
-                        {ASPECT_RATIOS.map(ratio => (
-                            <Button 
-                                key={ratio.name}
-                                variant={aspect === ratio.value ? 'secondary' : 'outline'}
-                                onClick={() => onAspectChange(ratio.value)}
-                                className="text-xs"
-                            >
-                                {ratio.name}
-                            </Button>
-                        ))}
-                    </div>
-                     <p className="text-sm text-muted-foreground pt-4">Adjust the selection on the image to crop it.</p>
-                     <div className="grid grid-cols-2 gap-2 pt-2">
-                        <Button variant="outline" onClick={() => setEditMode('none')}>Cancel</Button>
-                        <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
-                     </div>
-                 </div>
-            ) : editMode === 'text' ? (
-                <div className="space-y-4">
-                    <Button onClick={handleAddText} className="w-full">Add Text</Button>
-                    {selectedText && (
-                      <div className="space-y-4 p-2 border rounded-lg">
-                        <h3 className="font-semibold text-center">Edit Text</h3>
-                         <div>
-                            <Label htmlFor="text-input">Text</Label>
-                            <Input id="text-input" value={selectedText.text} onChange={(e) => updateTextElement(selectedText.id, {text: e.target.value})} />
-                         </div>
-                         <div>
-                            <Label htmlFor="font-family">Font Family</Label>
-                             <Select value={selectedText.fontFamily} onValueChange={(value) => updateTextElement(selectedText.id, { fontFamily: value })}>
-                                <SelectTrigger><SelectValue /></SelectTrigger>
-                                <SelectContent>
-                                    {FONT_FACES.map(font => <SelectItem key={font.value} value={font.value} style={{fontFamily: font.value}}>{font.name}</SelectItem>)}
-                                </SelectContent>
-                             </Select>
-                         </div>
+           </div>
+      );
+    }
+    if (editMode === 'text') {
+      return (
+          <div className="space-y-4">
+              <Button onClick={handleAddText} className="w-full">Add Text</Button>
+              {selectedText && (
+                <div className="space-y-4 p-2 border rounded-lg">
+                  <h3 className="font-semibold text-center">Edit Text</h3>
+                   <div>
+                      <Label htmlFor="text-input">Text</Label>
+                      <Input id="text-input" value={selectedText.text} onChange={(e) => updateTextElement(selectedText.id, {text: e.target.value})} />
+                   </div>
+                   <div>
+                      <Label htmlFor="font-family">Font Family</Label>
+                       <Select value={selectedText.fontFamily} onValueChange={(value) => updateTextElement(selectedText.id, { fontFamily: value })}>
+                          <SelectTrigger><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                              {FONT_FACES.map(font => <SelectItem key={font.value} value={font.value} style={{fontFamily: font.value}}>{font.name}</SelectItem>)}
+                          </SelectContent>
+                       </Select>
+                   </div>
+                   <div className="grid grid-cols-2 gap-4">
+                      <div>
+                          <Label htmlFor="font-size">Size</Label>
+                          <Slider id="font-size" min={10} max={200} value={[selectedText.fontSize]} onValueChange={([v]) => updateTextElement(selectedText.id, {fontSize: v})} />
+                      </div>
+                      <div>
+                          <Label htmlFor="font-rotation">Rotate</Label>
+                          <Slider id="font-rotation" min={-180} max={180} value={[selectedText.rotation]} onValueChange={([v]) => updateTextElement(selectedText.id, {rotation: v})} />
+                      </div>
+                   </div>
+                   <div className="flex items-center gap-4">
+                      <Label>Color</Label>
+                      <Input type="color" value={selectedText.color} onChange={e => updateTextElement(selectedText.id, {color: e.target.value})} className="p-0 h-8 w-12" />
+                   </div>
+                   <div className="grid grid-cols-2 gap-2">
+                       <Button variant={selectedText.bold ? 'secondary' : 'outline'} onClick={() => updateTextElement(selectedText.id, {bold: !selectedText.bold})}><Bold/></Button>
+                       <Button variant={selectedText.italic ? 'secondary' : 'outline'} onClick={() => updateTextElement(selectedText.id, {italic: !selectedText.italic})}><Italic/></Button>
+                   </div>
+                   <div className="flex items-center justify-between">
+                      <Label htmlFor="shadow" className="flex items-center gap-2">Shadow</Label>
+                      <Switch id="shadow" checked={selectedText.shadow} onCheckedChange={c => updateTextElement(selectedText.id, {shadow: c})} />
+                   </div>
+                   <div className="flex items-center justify-between">
+                      <Label htmlFor="stroke" className="flex items-center gap-2">Stroke</Label>
+                      <Switch id="stroke" checked={selectedText.stroke} onCheckedChange={c => updateTextElement(selectedText.id, {stroke: c})} />
+                   </div>
+                   <Button variant="destructive" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedText.id))}>Remove Text</Button>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2 pt-4">
+                  <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                  <Button onClick={handleApplyObjects}>Apply Text</Button>
+              </div>
+          </div>
+      );
+    }
+    if (editMode === 'stickers') {
+        return (
+            <div className="space-y-4">
+                <div className="grid grid-cols-4 gap-2">
+                    {STICKERS.map(sticker => (
+                        <Button key={sticker} variant="outline" className="text-2xl aspect-square h-auto" onClick={() => handleAddSticker(sticker)}>
+                            {sticker}
+                        </Button>
+                    ))}
+                </div>
+                {selectedSticker && (
+                    <div className="space-y-4 p-2 border rounded-lg">
+                        <h3 className="font-semibold text-center">Edit Sticker</h3>
                          <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <Label htmlFor="font-size">Size</Label>
-                                <Slider id="font-size" min={10} max={200} value={[selectedText.fontSize]} onValueChange={([v]) => updateTextElement(selectedText.id, {fontSize: v})} />
+                                <Label htmlFor="sticker-size">Size</Label>
+                                <Slider id="sticker-size" min={20} max={300} value={[selectedSticker.size]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {size: v})} />
                             </div>
                             <div>
-                                <Label htmlFor="font-rotation">Rotate</Label>
-                                <Slider id="font-rotation" min={-180} max={180} value={[selectedText.rotation]} onValueChange={([v]) => updateTextElement(selectedText.id, {rotation: v})} />
+                                <Label htmlFor="sticker-rotation">Rotate</Label>
+                                <Slider id="sticker-rotation" min={-180} max={180} value={[selectedSticker.rotation]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {rotation: v})} />
                             </div>
                          </div>
-                         <div className="flex items-center gap-4">
-                            <Label>Color</Label>
-                            <Input type="color" value={selectedText.color} onChange={e => updateTextElement(selectedText.id, {color: e.target.value})} className="p-0 h-8 w-12" />
-                         </div>
-                         <div className="grid grid-cols-2 gap-2">
-                             <Button variant={selectedText.bold ? 'secondary' : 'outline'} onClick={() => updateTextElement(selectedText.id, {bold: !selectedText.bold})}><Bold/></Button>
-                             <Button variant={selectedText.italic ? 'secondary' : 'outline'} onClick={() => updateTextElement(selectedText.id, {italic: !selectedText.italic})}><Italic/></Button>
-                         </div>
-                         <div className="flex items-center justify-between">
-                            <Label htmlFor="shadow" className="flex items-center gap-2">Shadow</Label>
-                            <Switch id="shadow" checked={selectedText.shadow} onCheckedChange={c => updateTextElement(selectedText.id, {shadow: c})} />
-                         </div>
-                         <div className="flex items-center justify-between">
-                            <Label htmlFor="stroke" className="flex items-center gap-2">Stroke</Label>
-                            <Switch id="stroke" checked={selectedText.stroke} onCheckedChange={c => updateTextElement(selectedText.id, {stroke: c})} />
-                         </div>
-                         <Button variant="destructive" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedText.id))}>Remove Text</Button>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-2 pt-4">
-                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
-                        <Button onClick={handleApplyObjects}>Apply Text</Button>
+                         <Button variant="destructive" size="sm" onClick={() => setStickerElements(stickerElements.filter(t => t.id !== selectedSticker.id))}>Remove Sticker</Button>
                     </div>
+                )}
+                <div className="grid grid-cols-2 gap-2 pt-4">
+                    <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                    <Button onClick={handleApplyObjects}>Apply Stickers</Button>
                 </div>
-            ) : editMode === 'stickers' ? (
-                <div className="space-y-4">
-                    <div className="grid grid-cols-4 gap-2">
-                        {STICKERS.map(sticker => (
-                            <Button key={sticker} variant="outline" className="text-2xl aspect-square h-auto" onClick={() => handleAddSticker(sticker)}>
-                                {sticker}
-                            </Button>
-                        ))}
-                    </div>
-                    {selectedSticker && (
-                        <div className="space-y-4 p-2 border rounded-lg">
-                            <h3 className="font-semibold text-center">Edit Sticker</h3>
-                             <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <Label htmlFor="sticker-size">Size</Label>
-                                    <Slider id="sticker-size" min={20} max={300} value={[selectedSticker.size]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {size: v})} />
-                                </div>
-                                <div>
-                                    <Label htmlFor="sticker-rotation">Rotate</Label>
-                                    <Slider id="sticker-rotation" min={-180} max={180} value={[selectedSticker.rotation]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {rotation: v})} />
-                                </div>
-                             </div>
-                             <Button variant="destructive" size="sm" onClick={() => setStickerElements(stickerElements.filter(t => t.id !== selectedSticker.id))}>Remove Sticker</Button>
-                        </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-2 pt-4">
-                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
-                        <Button onClick={handleApplyObjects}>Apply Stickers</Button>
-                    </div>
-                </div>
-            ) : editMode === 'watermark' ? (
-                <div className="space-y-4">
-                    {watermark && (
-                      <div className="space-y-4 p-2 border rounded-lg">
-                        <h3 className="font-semibold text-center">Edit Watermark</h3>
-                         <div>
-                            <Label htmlFor="watermark-input">Text</Label>
-                            <Input id="watermark-input" value={watermark.text} onChange={(e) => updateWatermarkElement({text: e.target.value})} />
-                         </div>
-                         <div>
-                            <Label>Color</Label>
-                             <RadioGroup defaultValue={watermark.color.startsWith('rgba(0,0,0') ? 'black' : 'white'} onValueChange={(value) => updateWatermarkElement({ color: value as 'black' | 'white'})} className="flex gap-4 pt-2">
-                                <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="white" id="white" />
-                                    <Label htmlFor="white">White</Label>
-                                </div>
-                                <div className="flex items-center space-x-2">
-                                    <RadioGroupItem value="black" id="black" />
-                                    <Label htmlFor="black">Black</Label>
-                                </div>
-                             </RadioGroup>
-                         </div>
-                         <div>
-                             <Label htmlFor="watermark-opacity">Opacity</Label>
-                             <Slider id="watermark-opacity" min={0} max={1} step={0.05} value={[watermark.opacity]} onValueChange={([v]) => updateWatermarkElement({opacity: v})} />
-                         </div>
-                         <div>
-                            <Label htmlFor="watermark-size">Size</Label>
-                            <Slider id="watermark-size" min={10} max={200} value={[watermark.size]} onValueChange={([v]) => updateWatermarkElement({size: v})} />
-                         </div>
-                      </div>
-                    )}
-                    <div className="grid grid-cols-2 gap-2 pt-4">
-                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
-                        <Button onClick={handleApplyObjects}>Apply Watermark</Button>
-                    </div>
-                </div>
-            ) : editMode === 'image' ? (
-                 <div className="space-y-4">
-                     <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">Add Another Image</Button>
-                     {selectedImage && (
-                        <div className="space-y-4 p-2 border rounded-lg">
-                            <h3 className="font-semibold text-center">Edit Image Layer</h3>
-                             <div>
-                                <Label htmlFor="image-rotation">Rotate</Label>
-                                <Slider id="image-rotation" min={-180} max={180} value={[selectedImage.rotation]} onValueChange={([v]) => updateImageElement(selectedImage.id, {rotation: v})} />
+            </div>
+        );
+    }
+    if (editMode === 'watermark') {
+        return (
+            <div className="space-y-4">
+                {watermark && (
+                  <div className="space-y-4 p-2 border rounded-lg">
+                    <h3 className="font-semibold text-center">Edit Watermark</h3>
+                     <div>
+                        <Label htmlFor="watermark-input">Text</Label>
+                        <Input id="watermark-input" value={watermark.text} onChange={(e) => updateWatermarkElement({text: e.target.value})} />
+                     </div>
+                     <div>
+                        <Label>Color</Label>
+                         <RadioGroup defaultValue={watermark.color.startsWith('rgba(0,0,0') ? 'black' : 'white'} onValueChange={(value) => updateWatermarkElement({ color: value as 'black' | 'white'})} className="flex gap-4 pt-2">
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="white" id="white" />
+                                <Label htmlFor="white">White</Label>
                             </div>
-                            <Button variant="destructive" size="sm" onClick={() => setImageElements(imageElements.filter(t => t.id !== selectedImage.id))}>Remove Image</Button>
+                            <div className="flex items-center space-x-2">
+                                <RadioGroupItem value="black" id="black" />
+                                <Label htmlFor="black">Black</Label>
+                            </div>
+                         </RadioGroup>
+                     </div>
+                     <div>
+                         <Label htmlFor="watermark-opacity">Opacity</Label>
+                         <Slider id="watermark-opacity" min={0} max={1} step={0.05} value={[watermark.opacity]} onValueChange={([v]) => updateWatermarkElement({opacity: v})} />
+                     </div>
+                     <div>
+                        <Label htmlFor="watermark-size">Size</Label>
+                        <Slider id="watermark-size" min={10} max={200} value={[watermark.size]} onValueChange={([v]) => updateWatermarkElement({size: v})} />
+                     </div>
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-2 pt-4">
+                    <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                    <Button onClick={handleApplyObjects}>Apply Watermark</Button>
+                </div>
+            </div>
+        );
+    }
+    if (editMode === 'image') {
+        return (
+             <div className="space-y-4">
+                 <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">Add Another Image</Button>
+                 {selectedImage && (
+                    <div className="space-y-4 p-2 border rounded-lg">
+                        <h3 className="font-semibold text-center">Edit Image Layer</h3>
+                         <div>
+                            <Label htmlFor="image-rotation">Rotate</Label>
+                            <Slider id="image-rotation" min={-180} max={180} value={[selectedImage.rotation]} onValueChange={([v]) => updateImageElement(selectedImage.id, {rotation: v})} />
                         </div>
-                    )}
-                     <div className="grid grid-cols-2 gap-2 pt-4">
-                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
-                        <Button onClick={handleApplyObjects}>Apply Images</Button>
+                        <Button variant="destructive" size="sm" onClick={() => setImageElements(imageElements.filter(t => t.id !== selectedImage.id))}>Remove Image</Button>
                     </div>
-                 </div>
-            ) : (
-            <Accordion type="multiple" defaultValue={['ai-tools', 'adjustments']} className="w-full">
-              <AccordionItem value="ai-tools">
-                <AccordionTrigger className="font-semibold"><Sparkles className="mr-2 text-primary h-5 w-5"/>AI Tools</AccordionTrigger>
-                <AccordionContent className="space-y-2 pt-2 grid grid-cols-2 gap-2">
-                  <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary col-span-2">
-                    <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
-                  </Button>
-                   <Button onClick={() => setEditMode('erase')} className="w-full">
-                    <Scissors className="mr-2 h-4 w-4" /> BG Eraser
-                  </Button>
-                   <Button onClick={() => setEditMode('inpaint')} className="w-full">
-                    <Wand2 className="mr-2 h-4 w-4" /> Erase Tool
-                  </Button>
-                  <Button onClick={() => { setEditMode('text'); setSelectedObjectId({id: null, type: 'text'}); }} className="w-full">
-                    <Type className="mr-2 h-4 w-4" /> Add Text
-                  </Button>
-                  <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full">
-                    <Smile className="mr-2 h-4 w-4" /> Add Stickers
-                  </Button>
-                   <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">
-                    <ImagePlus className="mr-2 h-4 w-4" /> Add Image
-                  </Button>
-                  <Button onClick={() => setEditMode('watermark')} className="w-full">
-                    <Copyright className="mr-2 h-4 w-4" /> Watermark
-                  </Button>
-                </AccordionContent>
-              </AccordionItem>
-              
-              <AccordionItem value="adjustments">
-                <AccordionTrigger className="font-semibold">Adjustments</AccordionTrigger>
-                <AccordionContent className="space-y-6 pt-4">
-                  {(Object.keys(INITIAL_STATE) as Array<keyof EditorState>).slice(0, 6).map((key) => {
-                      const icons: Record<string, React.ReactNode> = {
-                        brightness: <Sun className="w-4 h-4 text-muted-foreground" />,
-                        contrast: <Contrast className="w-4 h-4 text-muted-foreground" />,
-                        saturate: <Droplets className="w-4 h-4 text-muted-foreground" />,
-                        grayscale: <Palette className="w-4 h-4 text-muted-foreground" />,
-                        sepia: <Palette className="w-4 h-4 text-muted-foreground" />,
-                        hueRotate: <Palette className="w-4 h-4 text-muted-foreground" />,
-                      };
-                      return (
-                        <div key={key} className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <Label htmlFor={key} className="flex items-center gap-2 capitalize">
-                              {icons[key]}
-                              {key.replace('Rotate', ' Rotate')}
-                            </Label>
-                            <span className="text-sm text-muted-foreground">{state[key]}</span>
-                          </div>
-                          <Slider
-                            id={key}
-                            min={key === 'hueRotate' ? -180 : 0}
-                            max={key.match(/brightness|contrast|saturate/) ? 200 : key === 'hueRotate' ? 180 : 100}
-                            step={1}
-                            value={[state[key]]}
-                            onValueChange={([value]) => updateFilter(key, value)}
-                          />
-                        </div>
-                      );
-                  })}
-                   <Button onClick={handleApplyFilters} className="w-full">Apply Adjustments</Button>
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="filters">
-                <AccordionTrigger className="font-semibold">Filters</AccordionTrigger>
-                <AccordionContent className="pt-4 grid grid-cols-2 gap-2">
-                   <Button key="Clarity" variant="outline" onClick={() => applyPreset(AUTO_ENHANCE_PRESET)} className="flex items-center justify-start gap-2 h-12">
-                      <span className="text-lg">✨</span>
-                      <span className="font-medium">Clarity</span>
-                    </Button>
-                  {PRESETS.map((preset) => (
-                    <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex items-center justify-start gap-2 h-12">
-                      <span className="text-lg">{preset.icon}</span>
-                      <span className="font-medium">{preset.name}</span>
-                    </Button>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
-              
-              <AccordionItem value="transform">
-                <AccordionTrigger className="font-semibold">Transform</AccordionTrigger>
-                <AccordionContent className="pt-4 grid grid-cols-2 gap-2">
-                  <Button variant="outline" onClick={() => rotate(90)}><RotateCw className="mr-2 h-4 w-4"/> Rotate</Button>
-                  <Button variant="outline" onClick={() => rotate(-90)}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
-                  <Button variant="outline" onClick={() => flip('horizontal')}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
-                  <Button variant="outline" onClick={() => flip('vertical')}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
-                  <Button variant="outline" onClick={() => setEditMode('crop')} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
-            )}
+                )}
+                 <div className="grid grid-cols-2 gap-2 pt-4">
+                    <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                    <Button onClick={handleApplyObjects}>Apply Images</Button>
+                </div>
+             </div>
+        );
+    }
+    switch (activePanel) {
+      case 'ai':
+        return (
+           <div className="space-y-2 grid grid-cols-2 gap-2">
+              <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary col-span-2">
+                <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
+              </Button>
+               <Button onClick={() => setEditMode('erase')} className="w-full">
+                <Scissors className="mr-2 h-4 w-4" /> BG Eraser
+              </Button>
+               <Button onClick={() => setEditMode('inpaint')} className="w-full">
+                <Wand2 className="mr-2 h-4 w-4" /> Erase Tool
+              </Button>
+              <Button onClick={() => { setEditMode('text'); setSelectedObjectId({id: null, type: 'text'}); }} className="w-full">
+                <Type className="mr-2 h-4 w-4" /> Add Text
+              </Button>
+              <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full">
+                <Smile className="mr-2 h-4 w-4" /> Add Stickers
+              </Button>
+               <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">
+                <ImagePlus className="mr-2 h-4 w-4" /> Add Image
+              </Button>
+              <Button onClick={() => setEditMode('watermark')} className="w-full">
+                <Copyright className="mr-2 h-4 w-4" /> Watermark
+              </Button>
+            </div>
+        )
+      case 'adjust':
+        return (
+          <div className="space-y-6">
+            {(Object.keys(INITIAL_STATE) as Array<keyof EditorState>).slice(0, 6).map((key) => {
+                const icons: Record<string, React.ReactNode> = {
+                  brightness: <Sun className="w-4 h-4 text-muted-foreground" />,
+                  contrast: <Contrast className="w-4 h-4 text-muted-foreground" />,
+                  saturate: <Droplets className="w-4 h-4 text-muted-foreground" />,
+                  grayscale: <Palette className="w-4 h-4 text-muted-foreground" />,
+                  sepia: <Palette className="w-4 h-4 text-muted-foreground" />,
+                  hueRotate: <Palette className="w-4 h-4 text-muted-foreground" />,
+                };
+                return (
+                  <div key={key} className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <Label htmlFor={key} className="flex items-center gap-2 capitalize">
+                        {icons[key]}
+                        {key.replace('Rotate', ' Rotate')}
+                      </Label>
+                      <span className="text-sm text-muted-foreground">{state[key]}</span>
+                    </div>
+                    <Slider
+                      id={key}
+                      min={key === 'hueRotate' ? -180 : 0}
+                      max={key.match(/brightness|contrast|saturate/) ? 200 : key === 'hueRotate' ? 180 : 100}
+                      step={1}
+                      value={[state[key]]}
+                      onValueChange={([value]) => updateFilter(key, value)}
+                    />
+                  </div>
+                );
+            })}
+             <Button onClick={handleApplyFilters} className="w-full">Apply Adjustments</Button>
           </div>
-          <input type="file" ref={overlayImageInputRef} className="hidden" accept="image/*" onChange={handleAddImageLayer} />
+        );
+      case 'filter':
+        return (
+          <div className="grid grid-cols-2 gap-2">
+             <Button key="Clarity" variant="outline" onClick={() => applyPreset(AUTO_ENHANCE_PRESET)} className="flex items-center justify-start gap-2 h-12">
+                <span className="text-lg">✨</span>
+                <span className="font-medium">Clarity</span>
+              </Button>
+            {PRESETS.map((preset) => (
+              <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex items-center justify-start gap-2 h-12">
+                <span className="text-lg">{preset.icon}</span>
+                <span className="font-medium">{preset.name}</span>
+              </Button>
+            ))}
+          </div>
+        );
+      case 'transform':
+        return (
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="outline" onClick={() => rotate(90)}><RotateCw className="mr-2 h-4 w-4"/> Rotate</Button>
+            <Button variant="outline" onClick={() => rotate(-90)}><RotateCw className="mr-2 h-4 w-4 scale-x-[-1]"/> Rotate</Button>
+            <Button variant="outline" onClick={() => flip('horizontal')}><FlipHorizontal className="mr-2 h-4 w-4"/> Flip</Button>
+            <Button variant="outline" onClick={() => flip('vertical')}><FlipVertical className="mr-2 h-4 w-4"/> Flip</Button>
+            <Button variant="outline" onClick={() => setEditMode('crop')} className="col-span-2"><CropIcon className="mr-2 h-4 w-4"/> Crop Image</Button>
+          </div>
+        )
+      default:
+        return null;
+    }
+  }
 
-          {!inEditMode && (<div className="mt-auto pt-4">
-            <Button size="lg" className="w-full bg-accent hover:bg-accent/90" onClick={handleExport}>
-              <Download className="mr-2 h-5 w-5"/> Export Image
-            </Button>
-          </div>)}
-        </CardContent>
-      </Card>
+  return (
+    <div className="flex flex-col h-full md:h-[calc(100vh-12rem)] w-full relative">
+      <div className="flex-1 flex md:gap-8 h-full min-h-0">
+        <div className="flex-1 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-[300px] md:min-h-0 h-full">
+            {inDrawingMode && (
+              <div className="relative w-full h-full flex items-center justify-center">
+                <canvas ref={drawingCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
+                <canvas 
+                  ref={previewCanvasRef}
+                  className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair touch-none"
+                  onMouseDown={startDrawing}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onMouseMove={draw}
+                  onTouchStart={startDrawing}
+                  onTouchEnd={stopDrawing}
+                  onTouchCancel={stopDrawing}
+                  onTouchMove={draw}
+                />
+              </div>
+            )}
+    
+            {editMode === 'crop' && (
+               <ReactCrop 
+                  crop={crop} 
+                  onChange={(_, percentCrop) => setCrop(percentCrop)}
+                  onComplete={(c) => setCompletedCrop(c)}
+                  aspect={aspect}
+                  >
+                  <Image
+                    ref={imageRef}
+                    src={activeImage}
+                    alt="Cropping preview"
+                    width={800}
+                    height={600}
+                    className="max-w-full max-h-[calc(100vh-20rem)] object-contain"
+                    onLoad={onImageLoad}
+                    data-ai-hint="photo edit"
+                  />
+                </ReactCrop>
+            )}
+            
+            {(editMode === 'none' || inObjectMode) && (
+                <div className="relative w-full h-full flex items-center justify-center">
+                     <Image
+                        ref={imageRef}
+                        key={displayedImage}
+                        src={displayedImage}
+                        alt="Editing preview"
+                        width={1000}
+                        height={1000}
+                        className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
+                        style={isComparing ? {} : { filter: cssFilters, transform: cssTransform }}
+                        data-ai-hint="photo edit"
+                        onLoad={drawObjectsOnCanvas}
+                      />
+                      {inObjectMode && (
+                        <canvas 
+                            ref={objectCanvasRef}
+                            className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-move touch-none"
+                            onMouseDown={handleCanvasInteractionStart}
+                            onMouseMove={handleCanvasInteractionMove}
+                            onMouseUp={handleCanvasInteractionEnd}
+                            onMouseLeave={handleCanvasInteractionEnd}
+                            onTouchStart={handleCanvasInteractionStart}
+                            onTouchMove={handleCanvasInteractionMove}
+                            onTouchEnd={handleCanvasInteractionEnd}
+                            onTouchCancel={handleCanvasInteractionEnd}
+                        />
+                      )}
+                </div>
+            )}
+    
+            {isProcessing && (
+              <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center z-10">
+                  <Loader className="w-12 h-12 animate-spin text-primary" />
+                  <p className="mt-4 text-lg">AI is thinking...</p>
+              </div>
+            )}
+    
+          </div>
+    
+          <div className={`
+             absolute md:relative h-full w-full md:w-80 lg:w-96
+             bg-card border-l transition-transform duration-300 ease-in-out
+             ${isPanelOpen ? 'translate-x-0' : 'translate-x-full'} 
+             md:translate-x-0
+          `}>
+             <Card className="flex flex-col min-h-0 h-full rounded-none md:rounded-lg">
+                <CardContent className="p-4 flex-1 flex flex-col min-h-0">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-lg font-headline font-bold">
+                      {editMode === 'erase' ? 'Background Eraser' : 
+                       editMode === 'inpaint' ? 'Erase Tool' :
+                       editMode === 'crop' ? 'Crop Image' : 
+                       editMode === 'text' ? 'Add Text' :
+                       editMode === 'watermark' ? 'Add Watermark' :
+                       editMode === 'stickers' ? 'Add Stickers' : 
+                       editMode === 'image' ? 'Add Image Layer' : 'Tools' }
+                    </h2>
+                     <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setIsPanelOpen(false)}>
+                        <X className="w-5 h-5" />
+                    </Button>
+
+                    {!inEditMode && (
+                    <div className="hidden md:flex items-center gap-1">
+                      <TooltipProvider>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                               <Button 
+                                 variant="ghost" 
+                                 size="icon" 
+                                 onMouseDown={() => setIsComparing(true)}
+                                 onMouseUp={() => setIsComparing(false)}
+                                 onTouchStart={() => setIsComparing(true)}
+                                 onTouchEnd={() => setIsComparing(false)}
+                               >
+                                <Layers className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Hold to Compare</p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}>
+                                <Undo className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Undo</p>
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo}>
+                                <Redo className="w-4 h-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              <p>Redo</p>
+                            </TooltipContent>
+                          </Tooltip>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={onReset}>
+                              <RotateCcw className="w-4 h-4" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>Start Over</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </div>
+                    )}
+                  </div>
+        
+                  <div className="flex-1 overflow-y-auto pr-2 min-h-0">
+                    {mainContent()}
+                  </div>
+                  <input type="file" ref={overlayImageInputRef} className="hidden" accept="image/*" onChange={handleAddImageLayer} />
+        
+                  {!inEditMode && (<div className="mt-auto pt-4">
+                    <Button size="lg" className="w-full bg-accent hover:bg-accent/90" onClick={handleExport}>
+                      <Download className="mr-2 h-5 w-5"/> Export Image
+                    </Button>
+                  </div>)}
+                </CardContent>
+              </Card>
+          </div>
+      </div>
+
+
+      {/* Bottom Navigation */}
+      <div className="md:hidden h-20" /> {/* Spacer for bottom nav on mobile */}
+      <div className="fixed bottom-0 left-0 right-0 h-20 bg-card border-t z-20 md:relative md:h-auto md:border-0 md:bg-transparent">
+        <div className="container mx-auto h-full flex items-center justify-center">
+            <div className="hidden md:flex w-full items-center justify-center p-4 rounded-lg bg-card border gap-4">
+                 <BottomNavButton icon={Sparkles} label="AI Tools" isActive={activePanel==='ai'} onClick={() => openPanel('ai')} />
+                 <BottomNavButton icon={SlidersHorizontal} label="Adjust" isActive={activePanel==='adjust'} onClick={() => openPanel('adjust')} />
+                 <BottomNavButton icon={Paintbrush} label="Filters" isActive={activePanel==='filter'} onClick={() => openPanel('filter')} />
+                 <BottomNavButton icon={Clapperboard} label="Transform" isActive={activePanel==='transform'} onClick={() => openPanel('transform')} />
+                 <Button className="h-12" onClick={() => setIsPanelOpen(!isPanelOpen)}>
+                    <Menu className="w-5 h-5"/>
+                    <span className="ml-2">Tools</span>
+                 </Button>
+            </div>
+             <div className="flex md:hidden w-full items-center justify-around">
+                 <BottomNavButton icon={Sparkles} label="AI Tools" isActive={activePanel==='ai'} onClick={() => openPanel('ai')} />
+                 <BottomNavButton icon={SlidersHorizontal} label="Adjust" isActive={activePanel==='adjust'} onClick={() => openPanel('adjust')} />
+                 <BottomNavButton icon={Paintbrush} label="Filters" isActive={activePanel==='filter'} onClick={() => openPanel('filter')} />
+                 <BottomNavButton icon={Clapperboard} label="Transform" isActive={activePanel==='transform'} onClick={() => openPanel('transform')} />
+                 <BottomNavButton icon={Menu} label="More" onClick={() => alert("Undo/Redo/Reset options would be here")} />
+             </div>
+        </div>
+      </div>
     </div>
   );
 }

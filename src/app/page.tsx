@@ -3,7 +3,6 @@ import { useState } from 'react';
 import { Editor } from '@/components/editor';
 import { FileUploader } from '@/components/file-uploader';
 import { PhantasiaLogo } from '@/components/icons';
-import { Button } from '@/components/ui/button';
 
 export default function Home() {
   const [image, setImage] = useState<string | null>(null);
@@ -24,11 +23,6 @@ export default function Home() {
             <PhantasiaLogo className="h-8 w-8 text-primary" />
             <span className="ml-2 text-2xl font-bold font-headline">Phantasia</span>
           </div>
-          {image && (
-            <div className="flex flex-1 items-center justify-end space-x-2">
-               <Button variant="ghost" onClick={handleReset}>Start Over</Button>
-            </div>
-          )}
         </div>
       </header>
       <main className="flex-1 flex flex-col">
