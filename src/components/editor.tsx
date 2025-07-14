@@ -22,10 +22,11 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio } from 'lucide-react';
-import type { EditorState, TextElement, StickerElement } from '@/lib/types';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright } from 'lucide-react';
+import type { EditorState, TextElement, StickerElement, WatermarkElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction } from '@/lib/actions';
+import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 
 
 interface EditorProps {
@@ -47,9 +48,9 @@ const STICKERS = ['😀', '😂', '😍', '😎', '🥳', '🚀', '❤️', '⭐
 
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint';
+type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
-type InteractionTarget = 'none' | 'text' | 'sticker';
+type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark';
 
 const FONT_FACES = [
   { name: 'PT Sans', value: 'PT Sans, sans-serif' },
@@ -104,12 +105,14 @@ export function Editor({ image }: EditorProps) {
   const objectCanvasRef = useRef<HTMLCanvasElement>(null);
   const [textElements, setTextElements] = useState<TextElement[]>([]);
   const [stickerElements, setStickerElements] = useState<StickerElement[]>([]);
+  const [watermark, setWatermark] = useState<WatermarkElement | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<{id: string | null, type: InteractionTarget}>({id: null, type: 'none'});
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('none');
-  const interactionStartRef = useRef<{ x: number, y: number, object?: TextElement | StickerElement }>({ x: 0, y: 0 });
+  const interactionStartRef = useRef<{ x: number, y: number, object?: TextElement | StickerElement | WatermarkElement }>({ x: 0, y: 0 });
 
   const selectedText = selectedObjectId.type === 'text' ? textElements.find(t => t.id === selectedObjectId.id) : undefined;
   const selectedSticker = selectedObjectId.type === 'sticker' ? stickerElements.find(s => s.id === selectedObjectId.id) : undefined;
+  const selectedWatermark = selectedObjectId.type === 'watermark' ? watermark : undefined;
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -325,9 +328,9 @@ export function Editor({ image }: EditorProps) {
     };
   }, [activeImage]);
 
-  const getObjectMetrics = (obj: TextElement | StickerElement, ctx: CanvasRenderingContext2D) => {
-    if ('text' in obj) { // TextElement
-      const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize}px "${obj.fontFamily}"`;
+  const getObjectMetrics = (obj: TextElement | StickerElement | WatermarkElement, ctx: CanvasRenderingContext2D) => {
+    if ('text' in obj) { // TextElement or WatermarkElement
+      const fontStyle = 'font' in obj ? obj.font : `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize}px "${obj.fontFamily}"`;
       ctx.font = fontStyle;
       const metrics = ctx.measureText(obj.text);
       return {
@@ -357,24 +360,33 @@ export function Editor({ image }: EditorProps) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    const elementsToDraw = [...textElements, ...stickerElements];
+    const elementsToDraw: (TextElement | StickerElement | WatermarkElement)[] = [...textElements, ...stickerElements];
+    if (watermark) {
+        elementsToDraw.push(watermark);
+    }
     
     elementsToDraw.forEach(obj => {
       ctx.save();
       
-      if ('text' in obj) { // TextElement
-        const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize}px "${obj.fontFamily}"`;
-        ctx.font = fontStyle;
-        ctx.fillStyle = obj.color;
-        if (obj.shadow) {
-          ctx.shadowColor = 'rgba(0,0,0,0.5)';
-          ctx.shadowBlur = 5;
-          ctx.shadowOffsetX = 2;
-          ctx.shadowOffsetY = 2;
-        }
-        if (obj.stroke) {
-          ctx.strokeStyle = 'black'; 
-          ctx.lineWidth = 2;
+      if ('text' in obj) { // TextElement or WatermarkElement
+        if ('opacity' in obj) { // Watermark
+            ctx.globalAlpha = obj.opacity;
+            ctx.font = obj.font;
+            ctx.fillStyle = obj.color;
+        } else { // TextElement
+            const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize}px "${obj.fontFamily}"`;
+            ctx.font = fontStyle;
+            ctx.fillStyle = obj.color;
+            if (obj.shadow) {
+              ctx.shadowColor = 'rgba(0,0,0,0.5)';
+              ctx.shadowBlur = 5;
+              ctx.shadowOffsetX = 2;
+              ctx.shadowOffsetY = 2;
+            }
+            if (obj.stroke) {
+              ctx.strokeStyle = 'black'; 
+              ctx.lineWidth = 2;
+            }
         }
       } else { // StickerElement
         ctx.font = `${obj.size}px sans-serif`;
@@ -385,10 +397,12 @@ export function Editor({ image }: EditorProps) {
       ctx.textBaseline = 'middle';
       
       ctx.translate(obj.x, obj.y);
-      ctx.rotate(obj.rotation * Math.PI / 180);
+      if ('rotation' in obj) {
+        ctx.rotate(obj.rotation * Math.PI / 180);
+      }
       
       if ('text' in obj) {
-        if (obj.stroke) ctx.strokeText(obj.text, 0, 0);
+        if ('stroke' in obj && obj.stroke) ctx.strokeText(obj.text, 0, 0);
         ctx.fillText(obj.text, 0, 0);
       } else {
         ctx.fillText(obj.sticker, 0, 0);
@@ -405,46 +419,50 @@ export function Editor({ image }: EditorProps) {
           
           ctx.save();
           ctx.translate(obj.x, obj.y);
-          ctx.rotate(obj.rotation * Math.PI / 180);
+          if ('rotation' in obj) {
+              ctx.rotate(obj.rotation * Math.PI / 180);
+          }
           
           ctx.strokeStyle = 'hsl(var(--primary))';
           ctx.lineWidth = 1;
           ctx.setLineDash([5, 5]);
           ctx.strokeRect(-boxWidth / 2, -boxHeight / 2, boxWidth, boxHeight);
 
-          // Draw handles
-          ctx.setLineDash([]);
-          ctx.fillStyle = 'hsl(var(--background))';
-          
-          // Rotation handle
-          ctx.beginPath();
-          ctx.moveTo(0, -boxHeight / 2);
-          ctx.lineTo(0, -boxHeight / 2 - ROTATION_HANDLE_OFFSET);
-          ctx.stroke();
+          // Draw handles only for objects that support them
+          if ('rotation' in obj) {
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'hsl(var(--background))';
+            
+            // Rotation handle
+            ctx.beginPath();
+            ctx.moveTo(0, -boxHeight / 2);
+            ctx.lineTo(0, -boxHeight / 2 - ROTATION_HANDLE_OFFSET);
+            ctx.stroke();
 
-          ctx.beginPath();
-          ctx.arc(0, -boxHeight / 2 - ROTATION_HANDLE_OFFSET, HANDLE_SIZE / 2, 0, 2 * Math.PI);
-          ctx.fill();
-          ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(0, -boxHeight / 2 - ROTATION_HANDLE_OFFSET, HANDLE_SIZE / 2, 0, 2 * Math.PI);
+            ctx.fill();
+            ctx.stroke();
 
-          // Resize handle (bottom right)
-          ctx.beginPath();
-          ctx.rect(boxWidth / 2 - HANDLE_SIZE / 2, boxHeight / 2 - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
-          ctx.fill();
-          ctx.stroke();
+            // Resize handle (bottom right)
+            ctx.beginPath();
+            ctx.rect(boxWidth / 2 - HANDLE_SIZE / 2, boxHeight / 2 - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
+            ctx.fill();
+            ctx.stroke();
+          }
           
           ctx.restore();
       }
     });
 
-  }, [textElements, stickerElements, selectedObjectId]);
+  }, [textElements, stickerElements, watermark, selectedObjectId]);
 
   useEffect(() => {
     if (editMode === 'erase' || editMode === 'inpaint') {
       setupDrawingCanvas();
       window.addEventListener('resize', setupDrawingCanvas);
     }
-    if (editMode === 'text' || editMode === 'stickers') {
+    if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark') {
       drawObjectsOnCanvas();
     }
     return () => {
@@ -452,11 +470,30 @@ export function Editor({ image }: EditorProps) {
     }
   }, [editMode, activeImage, setupDrawingCanvas, drawObjectsOnCanvas]);
 
+  useEffect(() => {
+      if (editMode === 'watermark' && !watermark) {
+          const canvas = objectCanvasRef.current;
+          if (!canvas) return;
+          const newWatermark: WatermarkElement = {
+              id: 'watermark',
+              text: '© Your Name',
+              color: 'rgba(255, 255, 255, 0.7)',
+              size: 40,
+              opacity: 0.7,
+              font: '40px "PT Sans", sans-serif',
+              x: canvas.width / 2,
+              y: canvas.height - 50,
+          };
+          setWatermark(newWatermark);
+          setSelectedObjectId({id: 'watermark', type: 'watermark'});
+      }
+  }, [editMode, watermark]);
+
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     let canvas: HTMLCanvasElement | null = null;
     if (editMode === 'erase' || editMode === 'inpaint') {
       canvas = previewCanvasRef.current;
-    } else if (editMode === 'text' || editMode === 'stickers') {
+    } else if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark') {
       canvas = objectCanvasRef.current;
     }
     
@@ -638,8 +675,29 @@ export function Editor({ image }: EditorProps) {
   const updateStickerElement = (id: string, updates: Partial<StickerElement>) => {
     setStickerElements(stickerElements.map(s => s.id === id ? { ...s, ...updates } : s));
   };
+  
+  const updateWatermarkElement = (updates: Partial<WatermarkElement>) => {
+      if (!watermark) return;
+      const newWatermark = { ...watermark, ...updates };
 
-  const getHitRegion = (x: number, y: number, obj: TextElement | StickerElement): InteractionMode => {
+      // Also update font string if size is changed
+      if ('size' in updates) {
+          newWatermark.font = `${updates.size}px "PT Sans", sans-serif`;
+      }
+      if ('opacity' in updates) {
+          const color = newWatermark.color.startsWith('rgba(0,0,0') ? '0,0,0' : '255,255,255';
+          newWatermark.color = `rgba(${color}, ${updates.opacity})`;
+      }
+      if ('color' in updates && updates.color) {
+          const opacity = newWatermark.opacity;
+          const newColor = updates.color === 'black' ? `rgba(0,0,0,${opacity})` : `rgba(255,255,255,${opacity})`;
+          newWatermark.color = newColor;
+      }
+      setWatermark(newWatermark);
+  };
+
+
+  const getHitRegion = (x: number, y: number, obj: TextElement | StickerElement | WatermarkElement): InteractionMode => {
     const canvas = objectCanvasRef.current;
     if (!canvas) return 'none';
     const ctx = canvas.getContext('2d');
@@ -649,6 +707,15 @@ export function Editor({ image }: EditorProps) {
     const padding = 10;
     const boxWidth = width + padding * 2;
     const boxHeight = height + padding * 2;
+    
+    // Watermark is only draggable
+    if ('opacity' in obj) {
+        if (Math.abs(x - obj.x) < boxWidth / 2 && Math.abs(y - obj.y) < boxHeight / 2) {
+            return 'dragging';
+        }
+        return 'none';
+    }
+
 
     const angle = -obj.rotation * Math.PI / 180;
     const s = Math.sin(angle);
@@ -686,10 +753,13 @@ export function Editor({ image }: EditorProps) {
     const { x, y } = getCanvasCoordinates(e);
     
     let interaction: InteractionMode = 'none';
-    let clickedObject: TextElement | StickerElement | undefined;
+    let clickedObject: TextElement | StickerElement | WatermarkElement | undefined;
     let clickedObjectType: InteractionTarget = 'none';
 
-    const allObjects = [...stickerElements, ...textElements];
+    const allObjects: (TextElement | StickerElement | WatermarkElement)[] = [...stickerElements, ...textElements];
+    if (watermark) {
+        allObjects.push(watermark);
+    }
 
     // Check for interaction with the currently selected object first
     const selectedObject = allObjects.find(o => o.id === selectedObjectId.id);
@@ -709,7 +779,7 @@ export function Editor({ image }: EditorProps) {
             if (hit !== 'none') {
                 interaction = hit;
                 clickedObject = obj;
-                clickedObjectType = 'text' in obj ? 'text' : 'sticker';
+                clickedObjectType = 'text' in obj && !('opacity' in obj) ? 'text' : ('sticker' in obj ? 'sticker' : 'watermark');
                 setSelectedObjectId({id: obj.id, type: clickedObjectType});
                 break;
             }
@@ -733,19 +803,38 @@ export function Editor({ image }: EditorProps) {
     const start = interactionStartRef.current;
     if (!start.object) return;
     
-    const updateFunction = selectedObjectId.type === 'text' ? updateTextElement : updateStickerElement;
-    const currentObject = selectedObjectId.type === 'text'
-        ? textElements.find(t => t.id === selectedObjectId.id)
-        : stickerElements.find(s => s.id === selectedObjectId.id);
+    let updateFunction;
+    let currentObject;
+
+    switch(selectedObjectId.type) {
+        case 'text':
+            updateFunction = updateTextElement;
+            currentObject = textElements.find(t => t.id === selectedObjectId.id);
+            break;
+        case 'sticker':
+            updateFunction = updateStickerElement;
+            currentObject = stickerElements.find(s => s.id === selectedObjectId.id);
+            break;
+        case 'watermark':
+            updateFunction = updateWatermarkElement;
+            currentObject = watermark;
+            break;
+        default: return;
+    }
 
     if (!currentObject) return;
     
     if (interactionMode === 'dragging') {
-        updateFunction(selectedObjectId.id, {
+        const updates = {
             x: start.object.x + (x - start.x),
             y: start.object.y + (y - start.y)
-        });
-    } else if (interactionMode === 'resizing') {
+        };
+        if (selectedObjectId.type === 'watermark') {
+            updateWatermarkElement(updates);
+        } else {
+            (updateFunction as (id: string, updates: any) => void)(selectedObjectId.id, updates);
+        }
+    } else if (interactionMode === 'resizing' && 'rotation' in currentObject) {
         const dX = x - currentObject.x;
         const dY = y - currentObject.y;
         const startDx = start.x - start.object.x;
@@ -756,17 +845,17 @@ export function Editor({ image }: EditorProps) {
 
         if (startDist > 0) {
             const scale = dist / startDist;
-            const currentSize = 'fontSize' in start.object ? start.object.fontSize : start.object.size;
+            const currentSize = 'fontSize' in start.object ? start.object.fontSize : ('size' in start.object ? start.object.size : 0);
             const newSize = Math.max(10, currentSize * scale);
             if(selectedObjectId.type === 'text') {
                 updateTextElement(selectedObjectId.id, { fontSize: newSize });
-            } else {
+            } else if (selectedObjectId.type === 'sticker') {
                 updateStickerElement(selectedObjectId.id, { size: newSize });
             }
         }
-    } else if (interactionMode === 'rotating') {
+    } else if (interactionMode === 'rotating' && 'rotation' in currentObject) {
         const angle = Math.atan2(y - currentObject.y, x - currentObject.x) * 180 / Math.PI;
-        updateFunction(selectedObjectId.id, { rotation: angle + 90 });
+        (updateFunction as (id: string, updates: any) => void)(selectedObjectId.id, { rotation: angle + 90 });
     }
   };
 
@@ -792,25 +881,34 @@ export function Editor({ image }: EditorProps) {
       const scaleY = sourceImage.naturalHeight / displayImage.clientHeight;
       
       ctx.drawImage(sourceImage, 0, 0);
-
-      const allObjects = [...textElements, ...stickerElements];
+      
+      const allObjects: (TextElement | StickerElement | WatermarkElement)[] = [...textElements, ...stickerElements];
+      if (watermark) {
+        allObjects.push(watermark);
+      }
       
       allObjects.forEach(obj => {
         ctx.save();
         
-        if ('text' in obj) { // TextElement
-            const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize * scaleX}px "${obj.fontFamily}"`;
-            ctx.font = fontStyle;
-            ctx.fillStyle = obj.color;
-            if (obj.shadow) {
-              ctx.shadowColor = 'rgba(0,0,0,0.5)';
-              ctx.shadowBlur = 5 * scaleX;
-              ctx.shadowOffsetX = 2 * scaleX;
-              ctx.shadowOffsetY = 2 * scaleY;
-            }
-            if (obj.stroke) {
-              ctx.strokeStyle = 'black';
-              ctx.lineWidth = 2 * scaleX;
+        if ('text' in obj) { // Text or Watermark
+            if ('opacity' in obj) { // Watermark
+                ctx.globalAlpha = obj.opacity;
+                ctx.font = `${obj.size * scaleX}px "PT Sans", sans-serif`;
+                ctx.fillStyle = obj.color.startsWith('rgba(0,0,0') ? `rgba(0,0,0,${obj.opacity})` : `rgba(255,255,255,${obj.opacity})`;
+            } else { // TextElement
+                const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize * scaleX}px "${obj.fontFamily}"`;
+                ctx.font = fontStyle;
+                ctx.fillStyle = obj.color;
+                if (obj.shadow) {
+                  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                  ctx.shadowBlur = 5 * scaleX;
+                  ctx.shadowOffsetX = 2 * scaleX;
+                  ctx.shadowOffsetY = 2 * scaleY;
+                }
+                if (obj.stroke) {
+                  ctx.strokeStyle = 'black';
+                  ctx.lineWidth = 2 * scaleX;
+                }
             }
         } else { // StickerElement
             ctx.font = `${obj.size * scaleX}px sans-serif`;
@@ -820,10 +918,13 @@ export function Editor({ image }: EditorProps) {
         ctx.textBaseline = 'middle';
   
         ctx.translate(obj.x * scaleX, obj.y * scaleY);
-        ctx.rotate(obj.rotation * Math.PI / 180);
+
+        if (!('opacity' in obj)) { // Not a watermark
+            ctx.rotate(obj.rotation * Math.PI / 180);
+        }
 
         if ('text' in obj) {
-            if (obj.stroke) ctx.strokeText(obj.text, 0, 0);
+            if ('stroke' in obj && obj.stroke) ctx.strokeText(obj.text, 0, 0);
             ctx.fillText(obj.text, 0, 0);
         } else {
             ctx.fillText(obj.sticker, 0, 0);
@@ -833,8 +934,10 @@ export function Editor({ image }: EditorProps) {
 
       updateHistory(canvas.toDataURL('image/png'));
       setEditMode('none');
+      // Reset states
       setTextElements([]);
       setStickerElements([]);
+      setWatermark(null);
       setSelectedObjectId({id: null, type: 'none'});
     }
   };
@@ -883,19 +986,21 @@ export function Editor({ image }: EditorProps) {
     setEditMode('none');
     setTextElements([]);
     setStickerElements([]);
+    setWatermark(null);
     setSelectedObjectId({id: null, type: 'none'});
   }
   
   const cancelObjectEditing = () => {
       setEditMode('none'); 
       setTextElements([]); 
-      setStickerElements([]); 
+      setStickerElements([]);
+      setWatermark(null);
       setSelectedObjectId({id: null, type: 'none'})
   };
 
   const inEditMode = editMode !== 'none';
   const displayedImage = isComparing ? image : activeImage;
-  const inObjectMode = editMode === 'text' || editMode === 'stickers';
+  const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark';
   const inDrawingMode = editMode === 'erase' || editMode === 'inpaint';
 
   return (
@@ -987,6 +1092,7 @@ export function Editor({ image }: EditorProps) {
                editMode === 'inpaint' ? 'Erase Tool' :
                editMode === 'crop' ? 'Crop Image' : 
                editMode === 'text' ? 'Add Text' :
+               editMode === 'watermark' ? 'Add Watermark' :
                editMode === 'stickers' ? 'Add Stickers' : 'Editing Tools' }
             </h2>
             {!inEditMode && (
@@ -1200,6 +1306,43 @@ export function Editor({ image }: EditorProps) {
                         <Button onClick={handleApplyObjects}>Apply Stickers</Button>
                     </div>
                 </div>
+            ) : editMode === 'watermark' ? (
+                <div className="space-y-4">
+                    {watermark && (
+                      <div className="space-y-4 p-2 border rounded-lg">
+                        <h3 className="font-semibold text-center">Edit Watermark</h3>
+                         <div>
+                            <Label htmlFor="watermark-input">Text</Label>
+                            <Input id="watermark-input" value={watermark.text} onChange={(e) => updateWatermarkElement({text: e.target.value})} />
+                         </div>
+                         <div>
+                            <Label>Color</Label>
+                             <RadioGroup defaultValue={watermark.color.startsWith('rgba(0,0,0') ? 'black' : 'white'} onValueChange={(value) => updateWatermarkElement({ color: value as 'black' | 'white'})} className="flex gap-4 pt-2">
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="white" id="white" />
+                                    <Label htmlFor="white">White</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="black" id="black" />
+                                    <Label htmlFor="black">Black</Label>
+                                </div>
+                             </RadioGroup>
+                         </div>
+                         <div>
+                             <Label htmlFor="watermark-opacity">Opacity</Label>
+                             <Slider id="watermark-opacity" min={0} max={1} step={0.05} value={[watermark.opacity]} onValueChange={([v]) => updateWatermarkElement({opacity: v})} />
+                         </div>
+                         <div>
+                            <Label htmlFor="watermark-size">Size</Label>
+                            <Slider id="watermark-size" min={10} max={200} value={[watermark.size]} onValueChange={([v]) => updateWatermarkElement({size: v})} />
+                         </div>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2 pt-4">
+                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                        <Button onClick={handleApplyObjects}>Apply Watermark</Button>
+                    </div>
+                </div>
             ) : (
             <Accordion type="multiple" defaultValue={['ai-tools', 'adjustments']} className="w-full">
               <AccordionItem value="ai-tools">
@@ -1219,6 +1362,9 @@ export function Editor({ image }: EditorProps) {
                   </Button>
                   <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full">
                     <Smile className="mr-2 h-4 w-4" /> Add Stickers
+                  </Button>
+                  <Button onClick={() => setEditMode('watermark')} className="w-full col-span-2">
+                    <Copyright className="mr-2 h-4 w-4" /> Watermark
                   </Button>
                 </AccordionContent>
               </AccordionItem>

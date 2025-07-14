@@ -33,3 +33,14 @@ export type StickerElement = {
     x: number;
     y: number;
 };
+
+export type WatermarkElement = {
+    id: 'watermark';
+    text: string;
+    color: string;
+    opacity: number;
+    size: number;
+    font: string;
+    x: number;
+    y: number;
+};
