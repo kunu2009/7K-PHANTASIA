@@ -14,14 +14,18 @@ import {
   Card,
   CardContent
 } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers } from 'lucide-react';
-import type { EditorState } from '@/lib/types';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Underline, CaseSensitive, Pilcrow } from 'lucide-react';
+import type { EditorState, TextElement } from '@/lib/types';
+import { Switch } from '@/components/ui/switch';
+
 
 interface EditorProps {
   image: string;
@@ -40,7 +44,16 @@ const PRESETS = [
 
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase';
+type EditMode = 'none' | 'crop' | 'erase' | 'text';
+
+const FONT_FACES = [
+  { name: 'PT Sans', value: 'PT Sans, sans-serif' },
+  { name: 'Playfair Display', value: 'Playfair Display, serif' },
+  { name: 'Roboto', value: 'Roboto, sans-serif' },
+  { name: 'Lobster', value: 'Lobster, cursive' },
+  { name: 'Pacifico', value: 'Pacifico, cursive' },
+  { name: 'Bebas Neue', value: 'Bebas Neue, sans-serif' },
+];
 
 export function Editor({ image }: EditorProps) {
   const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
@@ -52,6 +65,7 @@ export function Editor({ image }: EditorProps) {
   const [isComparing, setIsComparing] = useState(false);
 
   const imageRef = useRef<HTMLImageElement>(null);
+  const textCanvasRef = useRef<HTMLCanvasElement>(null);
   const { toast } = useToast();
 
   const [crop, setCrop] = useState<Crop>();
@@ -67,6 +81,14 @@ export function Editor({ image }: EditorProps) {
 
   const [eraseHistory, setEraseHistory] = useState<string[]>([]);
   const [eraseHistoryIndex, setEraseHistoryIndex] = useState(-1);
+
+  // Text state
+  const [textElements, setTextElements] = useState<TextElement[]>([]);
+  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+  const [isDraggingText, setIsDraggingText] = useState(false);
+  const dragOffsetRef = useRef<{ x: number, y: number }>({ x: 0, y: 0 });
+
+  const selectedText = textElements.find(t => t.id === selectedTextId);
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -266,18 +288,66 @@ export function Editor({ image }: EditorProps) {
     };
   }, [activeImage]);
 
+  const drawTextOnCanvas = useCallback(() => {
+    const canvas = textCanvasRef.current;
+    const img = imageRef.current;
+    if (!canvas || !img) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    canvas.width = img.clientWidth;
+    canvas.height = img.clientHeight;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    textElements.forEach(text => {
+      ctx.save();
+      const fontStyle = `${text.italic ? 'italic' : ''} ${text.bold ? 'bold' : ''} ${text.fontSize}px "${text.fontFamily}"`;
+      ctx.font = fontStyle;
+      ctx.fillStyle = text.color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      if (text.shadow) {
+        ctx.shadowColor = 'rgba(0,0,0,0.5)';
+        ctx.shadowBlur = 5;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+      }
+      
+      if(text.stroke) {
+        ctx.strokeStyle = 'black'; // Or make this configurable
+        ctx.lineWidth = 2;
+      }
+
+      ctx.translate(text.x, text.y);
+      ctx.rotate(text.rotation * Math.PI / 180);
+
+      if (text.stroke) {
+        ctx.strokeText(text.text, 0, 0);
+      }
+      ctx.fillText(text.text, 0, 0);
+      ctx.restore();
+    });
+
+  }, [textElements]);
+
   useEffect(() => {
     if (editMode === 'erase') {
       setupEraseCanvas();
       window.addEventListener('resize', setupEraseCanvas);
     }
+    if (editMode === 'text') {
+      drawTextOnCanvas();
+    }
     return () => {
         window.removeEventListener('resize', setupEraseCanvas);
     }
-  }, [editMode, activeImage, setupEraseCanvas]);
+  }, [editMode, activeImage, setupEraseCanvas, drawTextOnCanvas]);
 
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = erasePreviewCanvasRef.current;
+    const canvas = editMode === 'erase' ? erasePreviewCanvasRef.current : textCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const touch = 'touches' in e ? e.touches[0] : null;
@@ -355,6 +425,119 @@ export function Editor({ image }: EditorProps) {
 
   const handleCancelErase = () => {
       setEditMode('none');
+  };
+
+  const handleAddText = () => {
+    const canvas = textCanvasRef.current;
+    if (!canvas) return;
+
+    const newText: TextElement = {
+      id: Date.now().toString(),
+      text: 'Hello World',
+      color: '#ffffff',
+      fontFamily: 'PT Sans, sans-serif',
+      fontSize: 50,
+      bold: false,
+      italic: false,
+      rotation: 0,
+      shadow: true,
+      stroke: false,
+      x: canvas.width / 2,
+      y: canvas.height / 2
+    };
+    setTextElements([...textElements, newText]);
+    setSelectedTextId(newText.id);
+  };
+
+  const updateTextElement = (id: string, updates: Partial<TextElement>) => {
+    setTextElements(textElements.map(t => t.id === id ? { ...t, ...updates } : t));
+  };
+  
+  const handleTextCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const { x, y } = getCanvasCoordinates(e);
+    const clickedText = textElements.find(text => {
+      // Basic bounding box collision detection
+      const textWidth = text.fontSize * text.text.length / 2; // rough estimate
+      return x > text.x - textWidth / 2 && x < text.x + textWidth / 2 &&
+             y > text.y - text.fontSize / 2 && y < text.y + text.fontSize / 2;
+    });
+
+    if (clickedText) {
+      setSelectedTextId(clickedText.id);
+      setIsDraggingText(true);
+      dragOffsetRef.current = { x: x - clickedText.x, y: y - clickedText.y };
+    } else {
+      setSelectedTextId(null);
+    }
+  };
+  
+  const handleTextCanvasMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (isDraggingText && selectedTextId) {
+      const { x, y } = getCanvasCoordinates(e);
+      updateTextElement(selectedTextId, {
+        x: x - dragOffsetRef.current.x,
+        y: y - dragOffsetRef.current.y
+      });
+    }
+  };
+
+  const handleTextCanvasMouseUp = () => {
+    setIsDraggingText(false);
+  };
+
+  const handleApplyText = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    const sourceImage = new window.Image();
+    sourceImage.src = activeImage;
+    sourceImage.crossOrigin = 'anonymous';
+    sourceImage.onload = () => {
+      canvas.width = sourceImage.naturalWidth;
+      canvas.height = sourceImage.naturalHeight;
+      if (!ctx) return;
+      
+      const displayImage = imageRef.current;
+      if (!displayImage) return;
+
+      const scaleX = sourceImage.naturalWidth / displayImage.clientWidth;
+      const scaleY = sourceImage.naturalHeight / displayImage.clientHeight;
+      
+      ctx.drawImage(sourceImage, 0, 0);
+
+      textElements.forEach(text => {
+        ctx.save();
+        const fontStyle = `${text.italic ? 'italic' : ''} ${text.bold ? 'bold' : ''} ${text.fontSize * scaleX}px "${text.fontFamily}"`;
+        ctx.font = fontStyle;
+        ctx.fillStyle = text.color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+  
+        if (text.shadow) {
+          ctx.shadowColor = 'rgba(0,0,0,0.5)';
+          ctx.shadowBlur = 5 * scaleX;
+          ctx.shadowOffsetX = 2 * scaleX;
+          ctx.shadowOffsetY = 2 * scaleY;
+        }
+        
+        if (text.stroke) {
+          ctx.strokeStyle = 'black';
+          ctx.lineWidth = 2 * scaleX;
+        }
+
+        ctx.translate(text.x * scaleX, text.y * scaleY);
+        ctx.rotate(text.rotation * Math.PI / 180);
+
+        if (text.stroke) {
+          ctx.strokeText(text.text, 0, 0);
+        }
+        ctx.fillText(text.text, 0, 0);
+        ctx.restore();
+      });
+
+      updateHistory(canvas.toDataURL('image/png'));
+      setEditMode('none');
+      setTextElements([]);
+    }
   };
   
   const handleExport = () => {
@@ -443,18 +626,32 @@ export function Editor({ image }: EditorProps) {
               />
             </ReactCrop>
         )}
-
-        {editMode === 'none' && (
-          <Image
-            ref={imageRef}
-            key={displayedImage}
-            src={displayedImage}
-            alt="Editing preview"
-            fill
-            className="object-contain transition-all duration-300"
-            style={isComparing ? {} : { filter: cssFilters, transform: cssTransform }}
-            data-ai-hint="photo edit"
-          />
+        
+        {(editMode === 'none' || editMode === 'text') && (
+            <div className="relative w-full h-full flex items-center justify-center">
+                 <Image
+                    ref={imageRef}
+                    key={displayedImage}
+                    src={displayedImage}
+                    alt="Editing preview"
+                    width={1000}
+                    height={1000}
+                    className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
+                    style={isComparing ? {} : { filter: cssFilters, transform: cssTransform }}
+                    data-ai-hint="photo edit"
+                    onLoad={drawTextOnCanvas}
+                  />
+                  {editMode === 'text' && (
+                    <canvas 
+                        ref={textCanvasRef}
+                        className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-move touch-none"
+                        onMouseDown={handleTextCanvasMouseDown}
+                        onMouseMove={handleTextCanvasMouseMove}
+                        onMouseUp={handleTextCanvasMouseUp}
+                        onMouseLeave={handleTextCanvasMouseUp}
+                    />
+                  )}
+            </div>
         )}
       </div>
 
@@ -462,7 +659,9 @@ export function Editor({ image }: EditorProps) {
         <CardContent className="p-4 flex-1 flex flex-col min-h-0">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-headline font-bold">
-              {editMode === 'erase' ? 'Erase Background' : editMode === 'crop' ? 'Crop Image' : 'Editing Tools' }
+              {editMode === 'erase' ? 'Erase Background' : 
+               editMode === 'crop' ? 'Crop Image' : 
+               editMode === 'text' ? 'Add Text' : 'Editing Tools' }
             </h2>
             {!inEditMode && (
             <div className="flex items-center gap-1">
@@ -573,6 +772,59 @@ export function Editor({ image }: EditorProps) {
                         <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
                      </div>
                  </div>
+            ) : editMode === 'text' ? (
+                <div className="space-y-4">
+                    <Button onClick={handleAddText} className="w-full">Add Text</Button>
+                    {selectedText && (
+                      <div className="space-y-4 p-2 border rounded-lg">
+                        <h3 className="font-semibold text-center">Edit Text</h3>
+                         <div>
+                            <Label htmlFor="text-input">Text</Label>
+                            <Input id="text-input" value={selectedText.text} onChange={(e) => updateTextElement(selectedText.id, {text: e.target.value})} />
+                         </div>
+                         <div>
+                            <Label htmlFor="font-family">Font Family</Label>
+                             <Select value={selectedText.fontFamily} onValueChange={(value) => updateTextElement(selectedText.id, { fontFamily: value })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    {FONT_FACES.map(font => <SelectItem key={font.value} value={font.value} style={{fontFamily: font.value}}>{font.name}</SelectItem>)}
+                                </SelectContent>
+                             </Select>
+                         </div>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <Label htmlFor="font-size">Size</Label>
+                                <Slider id="font-size" min={10} max={200} value={[selectedText.fontSize]} onValueChange={([v]) => updateTextElement(selectedText.id, {fontSize: v})} />
+                            </div>
+                            <div>
+                                <Label htmlFor="font-rotation">Rotate</Label>
+                                <Slider id="font-rotation" min={-180} max={180} value={[selectedText.rotation]} onValueChange={([v]) => updateTextElement(selectedText.id, {rotation: v})} />
+                            </div>
+                         </div>
+                         <div className="flex items-center gap-4">
+                            <Label>Color</Label>
+                            <Input type="color" value={selectedText.color} onChange={e => updateTextElement(selectedText.id, {color: e.target.value})} className="p-0 h-8 w-12" />
+                         </div>
+                         <div className="grid grid-cols-2 gap-2">
+                             <Button variant={selectedText.bold ? 'secondary' : 'outline'} onClick={() => updateTextElement(selectedText.id, {bold: !selectedText.bold})}><Bold/></Button>
+                             <Button variant={selectedText.italic ? 'secondary' : 'outline'} onClick={() => updateTextElement(selectedText.id, {italic: !selectedText.italic})}><Italic/></Button>
+                         </div>
+                         <div className="flex items-center justify-between">
+                            <Label htmlFor="shadow" className="flex items-center gap-2">Shadow</Label>
+                            <Switch id="shadow" checked={selectedText.shadow} onCheckedChange={c => updateTextElement(selectedText.id, {shadow: c})} />
+                         </div>
+                         <div className="flex items-center justify-between">
+                            <Label htmlFor="stroke" className="flex items-center gap-2">Stroke</Label>
+                            <Switch id="stroke" checked={selectedText.stroke} onCheckedChange={c => updateTextElement(selectedText.id, {stroke: c})} />
+                         </div>
+                         <Button variant="destructive-outline" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedTextId))}>Remove Text</Button>
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2 pt-4">
+                        <Button variant="outline" onClick={() => { setEditMode('none'); setTextElements([]); }}>Cancel</Button>
+                        <Button onClick={handleApplyText}>Apply Text</Button>
+                    </div>
+                </div>
             ) : (
             <Accordion type="multiple" defaultValue={['ai-tools', 'adjustments']} className="w-full">
               <AccordionItem value="ai-tools">
@@ -581,8 +833,11 @@ export function Editor({ image }: EditorProps) {
                   <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary col-span-2">
                     <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
                   </Button>
-                   <Button onClick={() => setEditMode('erase')} className="w-full col-span-2">
+                   <Button onClick={() => setEditMode('erase')} className="w-full">
                     <Scissors className="mr-2 h-4 w-4" /> BG Remover
+                  </Button>
+                  <Button onClick={() => setEditMode('text')} className="w-full">
+                    <Type className="mr-2 h-4 w-4" /> Add Text
                   </Button>
                 </AccordionContent>
               </AccordionItem>
