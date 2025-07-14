@@ -22,8 +22,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic } from 'lucide-react';
-import type { EditorState, TextElement } from '@/lib/types';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile } from 'lucide-react';
+import type { EditorState, TextElement, StickerElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 
 
@@ -42,10 +42,13 @@ const PRESETS = [
   { name: 'Sunrise', icon: '🌅', settings: { contrast: 110, saturate: 140, brightness: 110, sepia: 10, hueRotate: -10 } },
 ];
 
+const STICKERS = ['😀', '😂', '😍', '😎', '🥳', '🚀', '❤️', '⭐️', '💯', '🔥', '👍', '🎉'];
+
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase' | 'text';
-type TextInteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
+type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers';
+type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
+type InteractionTarget = 'none' | 'text' | 'sticker';
 
 const FONT_FACES = [
   { name: 'PT Sans', value: 'PT Sans, sans-serif' },
@@ -85,14 +88,16 @@ export function Editor({ image }: EditorProps) {
   const [eraseHistory, setEraseHistory] = useState<string[]>([]);
   const [eraseHistoryIndex, setEraseHistoryIndex] = useState(-1);
 
-  // Text state
-  const textCanvasRef = useRef<HTMLCanvasElement>(null);
+  // Object Interaction state
+  const objectCanvasRef = useRef<HTMLCanvasElement>(null);
   const [textElements, setTextElements] = useState<TextElement[]>([]);
-  const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
-  const [textInteractionMode, setTextInteractionMode] = useState<TextInteractionMode>('none');
-  const interactionStartRef = useRef<{ x: number, y: number, text?: TextElement }>({ x: 0, y: 0 });
+  const [stickerElements, setStickerElements] = useState<StickerElement[]>([]);
+  const [selectedObjectId, setSelectedObjectId] = useState<{id: string | null, type: InteractionTarget}>({id: null, type: 'none'});
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('none');
+  const interactionStartRef = useRef<{ x: number, y: number, object?: TextElement | StickerElement }>({ x: 0, y: 0 });
 
-  const selectedText = textElements.find(t => t.id === selectedTextId);
+  const selectedText = selectedObjectId.type === 'text' ? textElements.find(t => t.id === selectedObjectId.id) : undefined;
+  const selectedSticker = selectedObjectId.type === 'sticker' ? stickerElements.find(s => s.id === selectedObjectId.id) : undefined;
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -112,7 +117,7 @@ export function Editor({ image }: EditorProps) {
 
   const handleRedo = () => {
     if (canRedo) {
-      setHistoryIndex(newHistory.length - 1);
+      setHistoryIndex(history.length - 1);
     }
   };
 
@@ -292,18 +297,27 @@ export function Editor({ image }: EditorProps) {
     };
   }, [activeImage]);
 
-  const getTextMetrics = (text: TextElement, ctx: CanvasRenderingContext2D) => {
-    const fontStyle = `${text.italic ? 'italic' : ''} ${text.bold ? 'bold' : ''} ${text.fontSize}px "${text.fontFamily}"`;
-    ctx.font = fontStyle;
-    const metrics = ctx.measureText(text.text);
-    return {
-      width: metrics.width,
-      height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
-    };
+  const getObjectMetrics = (obj: TextElement | StickerElement, ctx: CanvasRenderingContext2D) => {
+    if ('text' in obj) { // TextElement
+      const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize}px "${obj.fontFamily}"`;
+      ctx.font = fontStyle;
+      const metrics = ctx.measureText(obj.text);
+      return {
+        width: metrics.width,
+        height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
+      };
+    } else { // StickerElement
+      ctx.font = `${obj.size}px sans-serif`;
+      const metrics = ctx.measureText(obj.sticker);
+      return {
+        width: metrics.width,
+        height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent,
+      };
+    }
   }
 
-  const drawTextOnCanvas = useCallback(() => {
-    const canvas = textCanvasRef.current;
+  const drawObjectsOnCanvas = useCallback(() => {
+    const canvas = objectCanvasRef.current;
     const img = imageRef.current;
     if (!canvas || !img) return;
 
@@ -315,43 +329,55 @@ export function Editor({ image }: EditorProps) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    textElements.forEach(text => {
+    const elementsToDraw = [...textElements, ...stickerElements];
+    
+    elementsToDraw.forEach(obj => {
       ctx.save();
-      const fontStyle = `${text.italic ? 'italic' : ''} ${text.bold ? 'bold' : ''} ${text.fontSize}px "${text.fontFamily}"`;
-      ctx.font = fontStyle;
-      ctx.fillStyle = text.color;
+      
+      if ('text' in obj) { // TextElement
+        const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize}px "${obj.fontFamily}"`;
+        ctx.font = fontStyle;
+        ctx.fillStyle = obj.color;
+        if (obj.shadow) {
+          ctx.shadowColor = 'rgba(0,0,0,0.5)';
+          ctx.shadowBlur = 5;
+          ctx.shadowOffsetX = 2;
+          ctx.shadowOffsetY = 2;
+        }
+        if (obj.stroke) {
+          ctx.strokeStyle = 'black'; 
+          ctx.lineWidth = 2;
+        }
+      } else { // StickerElement
+        ctx.font = `${obj.size}px sans-serif`;
+        ctx.fillStyle = '#000000'; // Not used for emoji
+      }
+      
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-
-      if (text.shadow) {
-        ctx.shadowColor = 'rgba(0,0,0,0.5)';
-        ctx.shadowBlur = 5;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
+      
+      ctx.translate(obj.x, obj.y);
+      ctx.rotate(obj.rotation * Math.PI / 180);
+      
+      if ('text' in obj) {
+        if (obj.stroke) ctx.strokeText(obj.text, 0, 0);
+        ctx.fillText(obj.text, 0, 0);
+      } else {
+        ctx.fillText(obj.sticker, 0, 0);
       }
       
-      if(text.stroke) {
-        ctx.strokeStyle = 'black'; 
-        ctx.lineWidth = 2;
-      }
-
-      ctx.translate(text.x, text.y);
-      ctx.rotate(text.rotation * Math.PI / 180);
-      
-      if (text.stroke) ctx.strokeText(text.text, 0, 0);
-      ctx.fillText(text.text, 0, 0);
-
       ctx.restore();
 
-      if (selectedTextId === text.id) {
-          const { width, height } = getTextMetrics(text, ctx);
+      const isSelected = selectedObjectId.id === obj.id;
+      if (isSelected) {
+          const { width, height } = getObjectMetrics(obj, ctx);
           const padding = 10;
           const boxWidth = width + padding * 2;
           const boxHeight = height + padding * 2;
           
           ctx.save();
-          ctx.translate(text.x, text.y);
-          ctx.rotate(text.rotation * Math.PI / 180);
+          ctx.translate(obj.x, obj.y);
+          ctx.rotate(obj.rotation * Math.PI / 180);
           
           ctx.strokeStyle = 'hsl(var(--primary))';
           ctx.lineWidth = 1;
@@ -383,23 +409,29 @@ export function Editor({ image }: EditorProps) {
       }
     });
 
-  }, [textElements, selectedTextId]);
+  }, [textElements, stickerElements, selectedObjectId]);
 
   useEffect(() => {
     if (editMode === 'erase') {
       setupEraseCanvas();
       window.addEventListener('resize', setupEraseCanvas);
     }
-    if (editMode === 'text') {
-      drawTextOnCanvas();
+    if (editMode === 'text' || editMode === 'stickers') {
+      drawObjectsOnCanvas();
     }
     return () => {
         window.removeEventListener('resize', setupEraseCanvas);
     }
-  }, [editMode, activeImage, setupEraseCanvas, drawTextOnCanvas]);
+  }, [editMode, activeImage, setupEraseCanvas, drawObjectsOnCanvas]);
 
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    const canvas = editMode === 'erase' ? erasePreviewCanvasRef.current : textCanvasRef.current;
+    let canvas: HTMLCanvasElement | null = null;
+    if (editMode === 'erase') {
+      canvas = erasePreviewCanvasRef.current;
+    } else if (editMode === 'text' || editMode === 'stickers') {
+      canvas = objectCanvasRef.current;
+    }
+    
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
     const touch = 'touches' in e ? e.touches[0] : null;
@@ -480,7 +512,7 @@ export function Editor({ image }: EditorProps) {
   };
 
   const handleAddText = () => {
-    const canvas = textCanvasRef.current;
+    const canvas = objectCanvasRef.current;
     if (!canvas) return;
 
     const newText: TextElement = {
@@ -498,30 +530,50 @@ export function Editor({ image }: EditorProps) {
       y: canvas.height / 2
     };
     setTextElements([...textElements, newText]);
-    setSelectedTextId(newText.id);
+    setSelectedObjectId({id: newText.id, type: 'text'});
   };
 
   const updateTextElement = (id: string, updates: Partial<TextElement>) => {
     setTextElements(textElements.map(t => t.id === id ? { ...t, ...updates } : t));
   };
   
-  const getHitRegion = (x: number, y: number, text: TextElement): TextInteractionMode => {
-    const canvas = textCanvasRef.current;
+  const handleAddSticker = (sticker: string) => {
+    const canvas = objectCanvasRef.current;
+    if (!canvas) return;
+
+    const newSticker: StickerElement = {
+      id: Date.now().toString(),
+      sticker: sticker,
+      size: 100,
+      rotation: 0,
+      x: canvas.width / 2,
+      y: canvas.height / 2,
+    };
+    setStickerElements([...stickerElements, newSticker]);
+    setSelectedObjectId({id: newSticker.id, type: 'sticker'});
+  };
+  
+  const updateStickerElement = (id: string, updates: Partial<StickerElement>) => {
+    setStickerElements(stickerElements.map(s => s.id === id ? { ...s, ...updates } : s));
+  };
+
+  const getHitRegion = (x: number, y: number, obj: TextElement | StickerElement): InteractionMode => {
+    const canvas = objectCanvasRef.current;
     if (!canvas) return 'none';
     const ctx = canvas.getContext('2d');
     if (!ctx) return 'none';
 
-    const { width, height } = getTextMetrics(text, ctx);
+    const { width, height } = getObjectMetrics(obj, ctx);
     const padding = 10;
     const boxWidth = width + padding * 2;
     const boxHeight = height + padding * 2;
 
-    const angle = -text.rotation * Math.PI / 180;
+    const angle = -obj.rotation * Math.PI / 180;
     const s = Math.sin(angle);
     const c = Math.cos(angle);
 
-    const localX = (x - text.x) * c - (y - text.y) * s;
-    const localY = (x - text.x) * s + (y - text.y) * c;
+    const localX = (x - obj.x) * c - (y - obj.y) * s;
+    const localY = (x - obj.x) * s + (y - obj.y) * c;
     
     // Check rotation handle
     const rotHandleX = 0;
@@ -551,78 +603,96 @@ export function Editor({ image }: EditorProps) {
     e.preventDefault();
     const { x, y } = getCanvasCoordinates(e);
     
-    let interaction: TextInteractionMode = 'none';
-    let clickedText: TextElement | undefined;
+    let interaction: InteractionMode = 'none';
+    let clickedObject: TextElement | StickerElement | undefined;
+    let clickedObjectType: InteractionTarget = 'none';
 
-    // Check for interaction with the currently selected text first
-    if (selectedText) {
-        interaction = getHitRegion(x, y, selectedText);
+    const allObjects = [...stickerElements, ...textElements];
+
+    // Check for interaction with the currently selected object first
+    const selectedObject = allObjects.find(o => o.id === selectedObjectId.id);
+    if (selectedObject) {
+        interaction = getHitRegion(x, y, selectedObject);
         if(interaction !== 'none') {
-            clickedText = selectedText;
+            clickedObject = selectedObject;
+            clickedObjectType = selectedObjectId.type;
         }
     }
     
-    // If no interaction with selected text, check other text elements
+    // If no interaction with selected object, check other objects
     if (interaction === 'none') {
-        for (let i = textElements.length - 1; i >= 0; i--) {
-            const text = textElements[i];
-            const hit = getHitRegion(x, y, text);
+        for (let i = allObjects.length - 1; i >= 0; i--) {
+            const obj = allObjects[i];
+            const hit = getHitRegion(x, y, obj);
             if (hit !== 'none') {
                 interaction = hit;
-                clickedText = text;
-                setSelectedTextId(text.id);
+                clickedObject = obj;
+                clickedObjectType = 'text' in obj ? 'text' : 'sticker';
+                setSelectedObjectId({id: obj.id, type: clickedObjectType});
                 break;
             }
         }
     }
     
-    if (clickedText && interaction !== 'none') {
-        setTextInteractionMode(interaction);
-        interactionStartRef.current = { x, y, text: clickedText };
+    if (clickedObject && interaction !== 'none') {
+        setInteractionMode(interaction);
+        interactionStartRef.current = { x, y, object: clickedObject };
     } else {
-        setSelectedTextId(null);
-        setTextInteractionMode('none');
+        setSelectedObjectId({id: null, type: 'none'});
+        setInteractionMode('none');
     }
   };
   
   const handleCanvasInteractionMove = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
-    if (textInteractionMode === 'none' || !selectedTextId) return;
+    if (interactionMode === 'none' || !selectedObjectId.id) return;
     
     const { x, y } = getCanvasCoordinates(e);
     const start = interactionStartRef.current;
-    if (!start.text) return;
+    if (!start.object) return;
     
-    if (textInteractionMode === 'dragging') {
-        updateTextElement(selectedTextId, {
-            x: start.text.x + (x - start.x),
-            y: start.text.y + (y - start.y)
+    const updateFunction = selectedObjectId.type === 'text' ? updateTextElement : updateStickerElement;
+    const currentObject = selectedObjectId.type === 'text'
+        ? textElements.find(t => t.id === selectedObjectId.id)
+        : stickerElements.find(s => s.id === selectedObjectId.id);
+
+    if (!currentObject) return;
+    
+    if (interactionMode === 'dragging') {
+        updateFunction(selectedObjectId.id, {
+            x: start.object.x + (x - start.x),
+            y: start.object.y + (y - start.y)
         });
-    } else if (textInteractionMode === 'resizing') {
-        const dX = x - selectedText.x;
-        const dY = y - selectedText.y;
-        const startDx = start.x - start.text.x;
-        const startDy = start.y - start.text.y;
+    } else if (interactionMode === 'resizing') {
+        const dX = x - currentObject.x;
+        const dY = y - currentObject.y;
+        const startDx = start.x - start.object.x;
+        const startDy = start.y - start.object.y;
         
         const dist = Math.hypot(dX, dY);
         const startDist = Math.hypot(startDx, startDy);
 
         if (startDist > 0) {
             const scale = dist / startDist;
-            const newFontSize = Math.max(10, start.text.fontSize * scale);
-            updateTextElement(selectedTextId, { fontSize: newFontSize });
+            const currentSize = 'fontSize' in start.object ? start.object.fontSize : start.object.size;
+            const newSize = Math.max(10, currentSize * scale);
+            if(selectedObjectId.type === 'text') {
+                updateTextElement(selectedObjectId.id, { fontSize: newSize });
+            } else {
+                updateStickerElement(selectedObjectId.id, { size: newSize });
+            }
         }
-    } else if (textInteractionMode === 'rotating') {
-        const angle = Math.atan2(y - selectedText.y, x - selectedText.x) * 180 / Math.PI;
-        updateTextElement(selectedTextId, { rotation: angle + 90 });
+    } else if (interactionMode === 'rotating') {
+        const angle = Math.atan2(y - currentObject.y, x - currentObject.x) * 180 / Math.PI;
+        updateFunction(selectedObjectId.id, { rotation: angle + 90 });
     }
   };
 
   const handleCanvasInteractionEnd = () => {
-    setTextInteractionMode('none');
+    setInteractionMode('none');
   };
 
-  const handleApplyText = () => {
+  const handleApplyObjects = () => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const sourceImage = new window.Image();
@@ -641,39 +711,49 @@ export function Editor({ image }: EditorProps) {
       
       ctx.drawImage(sourceImage, 0, 0);
 
-      textElements.forEach(text => {
+      const allObjects = [...textElements, ...stickerElements];
+      
+      allObjects.forEach(obj => {
         ctx.save();
-        const fontStyle = `${text.italic ? 'italic' : ''} ${text.bold ? 'bold' : ''} ${text.fontSize * scaleX}px "${text.fontFamily}"`;
-        ctx.font = fontStyle;
-        ctx.fillStyle = text.color;
+        
+        if ('text' in obj) { // TextElement
+            const fontStyle = `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize * scaleX}px "${obj.fontFamily}"`;
+            ctx.font = fontStyle;
+            ctx.fillStyle = obj.color;
+            if (obj.shadow) {
+              ctx.shadowColor = 'rgba(0,0,0,0.5)';
+              ctx.shadowBlur = 5 * scaleX;
+              ctx.shadowOffsetX = 2 * scaleX;
+              ctx.shadowOffsetY = 2 * scaleY;
+            }
+            if (obj.stroke) {
+              ctx.strokeStyle = 'black';
+              ctx.lineWidth = 2 * scaleX;
+            }
+        } else { // StickerElement
+            ctx.font = `${obj.size * scaleX}px sans-serif`;
+        }
+
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
   
-        if (text.shadow) {
-          ctx.shadowColor = 'rgba(0,0,0,0.5)';
-          ctx.shadowBlur = 5 * scaleX;
-          ctx.shadowOffsetX = 2 * scaleX;
-          ctx.shadowOffsetY = 2 * scaleY;
-        }
-        
-        if (text.stroke) {
-          ctx.strokeStyle = 'black';
-          ctx.lineWidth = 2 * scaleX;
-        }
+        ctx.translate(obj.x * scaleX, obj.y * scaleY);
+        ctx.rotate(obj.rotation * Math.PI / 180);
 
-        ctx.translate(text.x * scaleX, text.y * scaleY);
-        ctx.rotate(text.rotation * Math.PI / 180);
-
-        if (text.stroke) {
-          ctx.strokeText(text.text, 0, 0);
+        if ('text' in obj) {
+            if (obj.stroke) ctx.strokeText(obj.text, 0, 0);
+            ctx.fillText(obj.text, 0, 0);
+        } else {
+            ctx.fillText(obj.sticker, 0, 0);
         }
-        ctx.fillText(text.text, 0, 0);
         ctx.restore();
       });
 
       updateHistory(canvas.toDataURL('image/png'));
       setEditMode('none');
       setTextElements([]);
+      setStickerElements([]);
+      setSelectedObjectId({id: null, type: 'none'});
     }
   };
   
@@ -720,10 +800,20 @@ export function Editor({ image }: EditorProps) {
     setHistoryIndex(0);
     setEditMode('none');
     setTextElements([]);
+    setStickerElements([]);
+    setSelectedObjectId({id: null, type: 'none'});
   }
+  
+  const cancelObjectEditing = () => {
+      setEditMode('none'); 
+      setTextElements([]); 
+      setStickerElements([]); 
+      setSelectedObjectId({id: null, type: 'none'})
+  };
 
   const inEditMode = editMode !== 'none';
   const displayedImage = isComparing ? image : activeImage;
+  const inObjectMode = editMode === 'text' || editMode === 'stickers';
 
   return (
     <div className="grid md:grid-cols-3 gap-8 h-full md:h-[calc(100vh-10rem)] grid-rows-[minmax(0,1fr)_auto] md:grid-rows-1">
@@ -765,7 +855,7 @@ export function Editor({ image }: EditorProps) {
             </ReactCrop>
         )}
         
-        {(editMode === 'none' || editMode === 'text') && (
+        {(editMode === 'none' || inObjectMode) && (
             <div className="relative w-full h-full flex items-center justify-center">
                  <Image
                     ref={imageRef}
@@ -777,11 +867,11 @@ export function Editor({ image }: EditorProps) {
                     className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
                     style={isComparing ? {} : { filter: cssFilters, transform: cssTransform }}
                     data-ai-hint="photo edit"
-                    onLoad={drawTextOnCanvas}
+                    onLoad={drawObjectsOnCanvas}
                   />
-                  {editMode === 'text' && (
+                  {inObjectMode && (
                     <canvas 
-                        ref={textCanvasRef}
+                        ref={objectCanvasRef}
                         className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-move touch-none"
                         onMouseDown={handleCanvasInteractionStart}
                         onMouseMove={handleCanvasInteractionMove}
@@ -803,7 +893,8 @@ export function Editor({ image }: EditorProps) {
             <h2 className="text-lg font-headline font-bold">
               {editMode === 'erase' ? 'Erase Background' : 
                editMode === 'crop' ? 'Crop Image' : 
-               editMode === 'text' ? 'Add Text' : 'Editing Tools' }
+               editMode === 'text' ? 'Add Text' :
+               editMode === 'stickers' ? 'Add Stickers' : 'Editing Tools' }
             </h2>
             {!inEditMode && (
             <div className="flex items-center gap-1">
@@ -959,12 +1050,42 @@ export function Editor({ image }: EditorProps) {
                             <Label htmlFor="stroke" className="flex items-center gap-2">Stroke</Label>
                             <Switch id="stroke" checked={selectedText.stroke} onCheckedChange={c => updateTextElement(selectedText.id, {stroke: c})} />
                          </div>
-                         <Button variant="destructive" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedTextId))}>Remove Text</Button>
+                         <Button variant="destructive" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedText.id))}>Remove Text</Button>
                       </div>
                     )}
                     <div className="grid grid-cols-2 gap-2 pt-4">
-                        <Button variant="outline" onClick={() => { setEditMode('none'); setTextElements([]); }}>Cancel</Button>
-                        <Button onClick={handleApplyText}>Apply Text</Button>
+                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                        <Button onClick={handleApplyObjects}>Apply Text</Button>
+                    </div>
+                </div>
+            ) : editMode === 'stickers' ? (
+                <div className="space-y-4">
+                    <div className="grid grid-cols-4 gap-2">
+                        {STICKERS.map(sticker => (
+                            <Button key={sticker} variant="outline" className="text-2xl aspect-square h-auto" onClick={() => handleAddSticker(sticker)}>
+                                {sticker}
+                            </Button>
+                        ))}
+                    </div>
+                    {selectedSticker && (
+                        <div className="space-y-4 p-2 border rounded-lg">
+                            <h3 className="font-semibold text-center">Edit Sticker</h3>
+                             <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <Label htmlFor="sticker-size">Size</Label>
+                                    <Slider id="sticker-size" min={20} max={300} value={[selectedSticker.size]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {size: v})} />
+                                </div>
+                                <div>
+                                    <Label htmlFor="sticker-rotation">Rotate</Label>
+                                    <Slider id="sticker-rotation" min={-180} max={180} value={[selectedSticker.rotation]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {rotation: v})} />
+                                </div>
+                             </div>
+                             <Button variant="destructive" size="sm" onClick={() => setStickerElements(stickerElements.filter(t => t.id !== selectedSticker.id))}>Remove Sticker</Button>
+                        </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-2 pt-4">
+                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                        <Button onClick={handleApplyObjects}>Apply Stickers</Button>
                     </div>
                 </div>
             ) : (
@@ -978,8 +1099,11 @@ export function Editor({ image }: EditorProps) {
                    <Button onClick={() => setEditMode('erase')} className="w-full">
                     <Scissors className="mr-2 h-4 w-4" /> BG Remover
                   </Button>
-                  <Button onClick={() => setEditMode('text')} className="w-full">
+                  <Button onClick={() => { setEditMode('text'); setSelectedObjectId({id: null, type: 'text'}); }} className="w-full">
                     <Type className="mr-2 h-4 w-4" /> Add Text
+                  </Button>
+                  <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full col-span-2">
+                    <Smile className="mr-2 h-4 w-4" /> Add Stickers
                   </Button>
                 </AccordionContent>
               </AccordionItem>
@@ -1059,5 +1183,3 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
-
-    

@@ -24,3 +24,12 @@ export type TextElement = {
     x: number;
     y: number;
 };
+
+export type StickerElement = {
+    id: string;
+    sticker: string;
+    size: number;
+    rotation: number;
+    x: number;
+    y: number;
+};
