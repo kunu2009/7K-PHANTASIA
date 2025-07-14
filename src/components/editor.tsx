@@ -517,15 +517,19 @@ export function Editor({ image }: EditorProps) {
   };
 
   const handleApplyInpaint = async () => {
-      const previewLayer = previewCanvasRef.current;
-      if (!previewLayer) return;
+    const previewLayer = previewCanvasRef.current;
+    if (!previewLayer) return;
 
+    setIsProcessing(true);
+    try {
       // Create a new canvas to generate the black and white mask
       const maskCanvas = document.createElement('canvas');
       maskCanvas.width = previewLayer.width;
       maskCanvas.height = previewLayer.height;
       const maskCtx = maskCanvas.getContext('2d');
-      if (!maskCtx) return;
+      if (!maskCtx) {
+        throw new Error('Could not create mask canvas context.');
+      }
 
       // Draw the blue preview onto the mask canvas
       maskCtx.drawImage(previewLayer, 0, 0);
@@ -534,31 +538,29 @@ export function Editor({ image }: EditorProps) {
       const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
       const data = imageData.data;
       for (let i = 0; i < data.length; i += 4) {
-          // If the pixel has any opacity (was painted), make it pure white
-          if (data[i + 3] > 0) {
-              data[i] = 255;
-              data[i + 1] = 255;
-              data[i + 2] = 255;
-              data[i + 3] = 255;
-          }
+        // If the pixel has any opacity (was painted), make it pure white
+        if (data[i + 3] > 0) {
+          data[i] = 255;
+          data[i + 1] = 255;
+          data[i + 2] = 255;
+          data[i + 3] = 255;
+        }
       }
       maskCtx.putImageData(imageData, 0, 0);
 
       const maskDataUri = maskCanvas.toDataURL('image/png');
-      
-      setIsProcessing(true);
-      try {
-          const result = await inpaintImageAction({
-              photoDataUri: activeImage,
-              maskDataUri: maskDataUri,
-          });
-          updateHistory(result.inpaintedPhotoDataUri);
-      } catch (e) {
-          toast({ variant: 'destructive', title: 'Inpainting Failed', description: (e as Error).message });
-      } finally {
-          setIsProcessing(false);
-          setEditMode('none');
-      }
+
+      const result = await inpaintImageAction({
+        photoDataUri: activeImage,
+        maskDataUri: maskDataUri,
+      });
+      updateHistory(result.inpaintedPhotoDataUri);
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Inpainting Failed', description: (e as Error).message });
+    } finally {
+      setIsProcessing(false);
+      setEditMode('none');
+    }
   };
 
 

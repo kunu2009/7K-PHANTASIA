@@ -64,7 +64,9 @@ const inpaintImageFlow = ai.defineFlow(
       };
     } catch (error) {
         console.error("Error during inpainting flow:", error);
-        throw new Error(`AI generation failed. Details: ${error instanceof Error ? error.message : String(error)}`);
+        // Cast the error to provide a more detailed message to the user.
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`AI generation failed. Details: ${errorMessage}`);
     }
   }
 );
