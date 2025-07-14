@@ -78,7 +78,7 @@ export function Editor({ image }: EditorProps) {
   const [history, setHistory] = useState<string[]>([image]);
   const [historyIndex, setHistoryIndex] = useState(0);
   
-  const [activeImage, setActiveImage] = useState(history[historyIndex]);
+  const activeImage = history[historyIndex];
   const [isComparing, setIsComparing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -120,10 +120,6 @@ export function Editor({ image }: EditorProps) {
   const canUndoDraw = drawHistoryIndex > 0;
   const canRedoDraw = drawHistoryIndex < drawHistory.length - 1;
 
-  useEffect(() => {
-    setActiveImage(history[historyIndex]);
-  }, [history, historyIndex]);
-
   const handleUndo = () => {
     if (canUndo) {
       setHistoryIndex(historyIndex - 1);
@@ -132,7 +128,7 @@ export function Editor({ image }: EditorProps) {
 
   const handleRedo = () => {
     if (canRedo) {
-      setHistoryIndex(history.length - 1);
+      setHistoryIndex(historyIndex + 1);
     }
   };
 
@@ -146,7 +142,7 @@ export function Editor({ image }: EditorProps) {
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
     const newCrop = centerCrop(
-      makeAspectCrop({ unit: '%', width: 90 }, aspect || 1, width, height),
+      makeAspectCrop({ unit: '%', width: 90 }, aspect || (width/height), width, height),
       width,
       height
     );
@@ -243,10 +239,10 @@ export function Editor({ image }: EditorProps) {
   const saveDrawHistory = () => {
     const canvas = previewCanvasRef.current;
     if (!canvas) return;
-    const newHistory = drawHistory.slice(0, drawHistoryIndex + 1);
-    newHistory.push(canvas.toDataURL());
-    setDrawHistory(newHistory);
-    setDrawHistoryIndex(newHistory.length - 1);
+    const newDrawHistory = drawHistory.slice(0, drawHistoryIndex + 1);
+    newDrawHistory.push(canvas.toDataURL());
+    setDrawHistory(newDrawHistory);
+    setDrawHistoryIndex(newDrawHistory.length - 1);
   };
 
   const handleUndoDraw = () => {
@@ -256,6 +252,7 @@ export function Editor({ image }: EditorProps) {
     const canvas = previewCanvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
+    
     const img = new window.Image();
     img.onload = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -265,12 +262,13 @@ export function Editor({ image }: EditorProps) {
   };
 
   const handleRedoDraw = () => {
-    if (!canUndoDraw) return;
+    if (!canRedoDraw) return;
     const newIndex = drawHistoryIndex + 1;
     setDrawHistoryIndex(newIndex);
     const canvas = previewCanvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
+    
     const img = new window.Image();
     img.onload = () => {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -320,7 +318,7 @@ export function Editor({ image }: EditorProps) {
             if (previewCtx) {
               previewCtx.clearRect(0,0, width, height);
             }
-            // Initial state for eraser history
+            // Initial state for drawing history
             const initialHistoryImage = previewLayer.toDataURL();
             setDrawHistory([initialHistoryImage]);
             setDrawHistoryIndex(0);
@@ -637,9 +635,9 @@ export function Editor({ image }: EditorProps) {
     const newText: TextElement = {
       id: Date.now().toString(),
       text: 'Hello World',
-      color: '#ffffff',
       fontFamily: 'PT Sans, sans-serif',
       fontSize: 50,
+      color: '#ffffff',
       bold: false,
       italic: false,
       rotation: 0,
@@ -1444,3 +1442,5 @@ export function Editor({ image }: EditorProps) {
     </div>
   );
 }
+
+    
