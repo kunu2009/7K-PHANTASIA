@@ -18,13 +18,10 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, Bot, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers } from 'lucide-react';
 import type { EditorState } from '@/lib/types';
-import { Skeleton } from './ui/skeleton';
-import { enhanceImageQualityAction } from '@/lib/actions';
 
 interface EditorProps {
   image: string;
@@ -37,10 +34,11 @@ const PRESETS = [
   { name: 'Cool', icon: '🧊', settings: { contrast: 110, brightness: 105, hueRotate: -15 } },
   { name: 'Warm', icon: '🔥', settings: { sepia: 20, saturate: 130, hueRotate: 5 } },
   { name: 'Lomo', icon: '📷', settings: { contrast: 150, saturate: 150, sepia: 20, hueRotate: -5 } },
-  { name: 'Clarity', icon: '✨', settings: { contrast: 120, saturate: 110, brightness: 105 } },
   { name: 'Sin City', icon: '🌆', settings: { contrast: 200, grayscale: 100, brightness: 80, sepia: 20 } },
   { name: 'Sunrise', icon: '🌅', settings: { contrast: 110, saturate: 140, brightness: 110, sepia: 10, hueRotate: -10 } },
 ];
+
+const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
 type EditMode = 'none' | 'crop' | 'erase';
 
@@ -53,8 +51,6 @@ export function Editor({ image }: EditorProps) {
   const [activeImage, setActiveImage] = useState(history[historyIndex]);
   const [isComparing, setIsComparing] = useState(false);
 
-  const [reasoning, setReasoning] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const { toast } = useToast();
 
@@ -395,26 +391,7 @@ export function Editor({ image }: EditorProps) {
   };
 
   const handleAutoEnhance = async () => {
-    setIsProcessing(true);
-    setReasoning(null);
-    try {
-      const result = await enhanceImageQualityAction(activeImage);
-      if (result.enhancedPhotoDataUri) {
-        updateHistory(result.enhancedPhotoDataUri);
-        setReasoning(result.reasoning);
-      } else {
-        throw new Error("AI enhancement failed to return an image.");
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "An unknown error occurred";
-      toast({
-        variant: "destructive",
-        title: "AI Enhance Failed",
-        description: errorMessage,
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+    applyPreset(AUTO_ENHANCE_PRESET);
   };
 
   const handleFullReset = () => {
@@ -601,20 +578,12 @@ export function Editor({ image }: EditorProps) {
               <AccordionItem value="ai-tools">
                 <AccordionTrigger className="font-semibold"><Sparkles className="mr-2 text-primary h-5 w-5"/>AI Tools</AccordionTrigger>
                 <AccordionContent className="space-y-2 pt-2 grid grid-cols-2 gap-2">
-                  <Button onClick={handleAutoEnhance} disabled={isProcessing} className="w-full bg-primary/90 hover:bg-primary col-span-2">
-                    <Wand2 className="mr-2 h-4 w-4" /> {isProcessing ? 'Working...' : 'Auto Enhance'}
+                  <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary col-span-2">
+                    <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
                   </Button>
-                   <Button onClick={() => setEditMode('erase')} disabled={isProcessing} className="w-full col-span-2">
+                   <Button onClick={() => setEditMode('erase')} className="w-full col-span-2">
                     <Scissors className="mr-2 h-4 w-4" /> BG Remover
                   </Button>
-                  {isProcessing && !reasoning && <Skeleton className="h-20 w-full col-span-2" />}
-                  {reasoning && !isProcessing && (
-                    <Alert className="col-span-2">
-                      <Bot className="h-4 w-4" />
-                      <AlertTitle>AI Analysis</AlertTitle>
-                      <AlertDescription>{reasoning}</AlertDescription>
-                    </Alert>
-                  )}
                 </AccordionContent>
               </AccordionItem>
               
@@ -656,6 +625,10 @@ export function Editor({ image }: EditorProps) {
               <AccordionItem value="filters">
                 <AccordionTrigger className="font-semibold">Filters</AccordionTrigger>
                 <AccordionContent className="pt-4 grid grid-cols-2 gap-2">
+                   <Button key="Clarity" variant="outline" onClick={() => applyPreset(AUTO_ENHANCE_PRESET)} className="flex items-center justify-start gap-2 h-12">
+                      <span className="text-lg">✨</span>
+                      <span className="font-medium">Clarity</span>
+                    </Button>
                   {PRESETS.map((preset) => (
                     <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex items-center justify-start gap-2 h-12">
                       <span className="text-lg">{preset.icon}</span>
