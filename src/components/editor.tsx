@@ -22,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, ScanSearch, Loader } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, ScanSearch, Loader, Ratio } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction } from '@/lib/actions';
@@ -60,6 +60,14 @@ const FONT_FACES = [
   { name: 'Bebas Neue', value: 'Bebas Neue, sans-serif' },
 ];
 
+const ASPECT_RATIOS = [
+    { name: 'Free', value: undefined },
+    { name: '1:1', value: 1 / 1 },
+    { name: '9:16', value: 9 / 16 },
+    { name: '16:9', value: 16 / 9 },
+    { name: '4:5', value: 4 / 5 },
+]
+
 const HANDLE_SIZE = 8;
 const ROTATION_HANDLE_OFFSET = 25;
 
@@ -79,6 +87,7 @@ export function Editor({ image }: EditorProps) {
 
   const [crop, setCrop] = useState<Crop>();
   const [completedCrop, setCompletedCrop] = useState<Crop>();
+  const [aspect, setAspect] = useState<number | undefined>();
   
   const [editMode, setEditMode] = useState<EditMode>('none');
   const [brushSize, setBrushSize] = useState(40);
@@ -133,12 +142,28 @@ export function Editor({ image }: EditorProps) {
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
-    setCrop(centerCrop(
-      makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
+    const newCrop = centerCrop(
+      makeAspectCrop({ unit: '%', width: 90 }, aspect || 1, width, height),
       width,
       height
-    ));
+    );
+    setCrop(newCrop);
+    setCompletedCrop(newCrop);
   };
+
+  function onAspectChange(newAspect: number | undefined) {
+    setAspect(newAspect);
+    if (imageRef.current) {
+        const { width, height } = imageRef.current;
+        const newCrop = centerCrop(
+            makeAspectCrop({ unit: '%', width: 90 }, newAspect || (width/height), width, height),
+            width,
+            height
+        );
+        setCrop(newCrop);
+        setCompletedCrop(newCrop);
+    }
+  }
   
   const getCroppedImg = (): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -237,7 +262,7 @@ export function Editor({ image }: EditorProps) {
   };
 
   const handleRedoDraw = () => {
-    if (!canRedoDraw) return;
+    if (!canUndoDraw) return;
     const newIndex = drawHistoryIndex + 1;
     setDrawHistoryIndex(newIndex);
     const canvas = previewCanvasRef.current;
@@ -899,6 +924,7 @@ export function Editor({ image }: EditorProps) {
               crop={crop} 
               onChange={(_, percentCrop) => setCrop(percentCrop)}
               onComplete={(c) => setCompletedCrop(c)}
+              aspect={aspect}
               >
               <Image
                 ref={imageRef}
@@ -1069,9 +1095,24 @@ export function Editor({ image }: EditorProps) {
                  </div>
                </div>
             ) : editMode === 'crop' ? (
-                 <div className="space-y-6">
-                     <p className="text-sm text-muted-foreground">Adjust the selection on the image to crop it.</p>
-                     <div className="grid grid-cols-2 gap-2 pt-4">
+                 <div className="space-y-4">
+                    <Label className="flex items-center gap-2">
+                        <Ratio className="w-4 h-4 text-muted-foreground" /> Aspect Ratio
+                    </Label>
+                    <div className="grid grid-cols-5 gap-2">
+                        {ASPECT_RATIOS.map(ratio => (
+                            <Button 
+                                key={ratio.name}
+                                variant={aspect === ratio.value ? 'secondary' : 'outline'}
+                                onClick={() => onAspectChange(ratio.value)}
+                                className="text-xs"
+                            >
+                                {ratio.name}
+                            </Button>
+                        ))}
+                    </div>
+                     <p className="text-sm text-muted-foreground pt-4">Adjust the selection on the image to crop it.</p>
+                     <div className="grid grid-cols-2 gap-2 pt-2">
                         <Button variant="outline" onClick={() => setEditMode('none')}>Cancel</Button>
                         <Button onClick={applyCrop}><CropIcon className="mr-2 h-4 w-4"/> Apply Crop</Button>
                      </div>
