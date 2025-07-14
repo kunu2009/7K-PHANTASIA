@@ -22,8 +22,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright } from 'lucide-react';
-import type { EditorState, TextElement, StickerElement, WatermarkElement } from '@/lib/types';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus } from 'lucide-react';
+import type { EditorState, TextElement, StickerElement, WatermarkElement, ImageElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction } from '@/lib/actions';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
@@ -48,9 +48,9 @@ const STICKERS = ['😀', '😂', '😍', '😎', '🥳', '🚀', '❤️', '⭐
 
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark';
+type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
-type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark';
+type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark' | 'image';
 
 const FONT_FACES = [
   { name: 'PT Sans', value: 'PT Sans, sans-serif' },
@@ -84,6 +84,7 @@ export function Editor({ image }: EditorProps) {
 
 
   const imageRef = useRef<HTMLImageElement>(null);
+  const overlayImageInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const [crop, setCrop] = useState<Crop>();
@@ -105,14 +106,19 @@ export function Editor({ image }: EditorProps) {
   const objectCanvasRef = useRef<HTMLCanvasElement>(null);
   const [textElements, setTextElements] = useState<TextElement[]>([]);
   const [stickerElements, setStickerElements] = useState<StickerElement[]>([]);
+  const [imageElements, setImageElements] = useState<ImageElement[]>([]);
   const [watermark, setWatermark] = useState<WatermarkElement | null>(null);
   const [selectedObjectId, setSelectedObjectId] = useState<{id: string | null, type: InteractionTarget}>({id: null, type: 'none'});
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('none');
-  const interactionStartRef = useRef<{ x: number, y: number, object?: TextElement | StickerElement | WatermarkElement }>({ x: 0, y: 0 });
+  const interactionStartRef = useRef<{ x: number, y: number, object?: TextElement | StickerElement | WatermarkElement | ImageElement }>({ x: 0, y: 0 });
+  const objectImageCache = useRef<Record<string, HTMLImageElement>>({});
+
 
   const selectedText = selectedObjectId.type === 'text' ? textElements.find(t => t.id === selectedObjectId.id) : undefined;
   const selectedSticker = selectedObjectId.type === 'sticker' ? stickerElements.find(s => s.id === selectedObjectId.id) : undefined;
   const selectedWatermark = selectedObjectId.type === 'watermark' ? watermark : undefined;
+  const selectedImage = selectedObjectId.type === 'image' ? imageElements.find(img => img.id === selectedObjectId.id) : undefined;
+
 
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
@@ -328,7 +334,7 @@ export function Editor({ image }: EditorProps) {
     };
   }, [activeImage]);
 
-  const getObjectMetrics = (obj: TextElement | StickerElement | WatermarkElement, ctx: CanvasRenderingContext2D) => {
+  const getObjectMetrics = (obj: TextElement | StickerElement | WatermarkElement | ImageElement, ctx: CanvasRenderingContext2D) => {
     if ('text' in obj) { // TextElement or WatermarkElement
       const fontStyle = 'font' in obj ? obj.font : `${obj.italic ? 'italic' : ''} ${obj.bold ? 'bold' : ''} ${obj.fontSize}px "${obj.fontFamily}"`;
       ctx.font = fontStyle;
@@ -337,13 +343,18 @@ export function Editor({ image }: EditorProps) {
         width: metrics.width,
         height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent
       };
-    } else { // StickerElement
+    } else if ('sticker' in obj) { // StickerElement
       ctx.font = `${obj.size}px sans-serif`;
       const metrics = ctx.measureText(obj.sticker);
       return {
         width: metrics.width,
         height: metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent,
       };
+    } else { // ImageElement
+        return {
+            width: obj.width,
+            height: obj.height
+        };
     }
   }
 
@@ -360,13 +371,19 @@ export function Editor({ image }: EditorProps) {
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     
-    const elementsToDraw: (TextElement | StickerElement | WatermarkElement)[] = [...textElements, ...stickerElements];
+    const elementsToDraw: (TextElement | StickerElement | WatermarkElement | ImageElement)[] = [...textElements, ...stickerElements, ...imageElements];
     if (watermark) {
         elementsToDraw.push(watermark);
     }
     
     elementsToDraw.forEach(obj => {
       ctx.save();
+      
+      ctx.translate(obj.x, obj.y);
+
+      if ('rotation' in obj) {
+        ctx.rotate(obj.rotation * Math.PI / 180);
+      }
       
       if ('text' in obj) { // TextElement or WatermarkElement
         if ('opacity' in obj) { // Watermark
@@ -388,24 +405,20 @@ export function Editor({ image }: EditorProps) {
               ctx.lineWidth = 2;
             }
         }
-      } else { // StickerElement
-        ctx.font = `${obj.size}px sans-serif`;
-        ctx.fillStyle = '#000000'; // Not used for emoji
-      }
-      
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      ctx.translate(obj.x, obj.y);
-      if ('rotation' in obj) {
-        ctx.rotate(obj.rotation * Math.PI / 180);
-      }
-      
-      if ('text' in obj) {
+         ctx.textAlign = 'center';
+         ctx.textBaseline = 'middle';
         if ('stroke' in obj && obj.stroke) ctx.strokeText(obj.text, 0, 0);
         ctx.fillText(obj.text, 0, 0);
-      } else {
+      } else if ('sticker' in obj) { // StickerElement
+        ctx.font = `${obj.size}px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
         ctx.fillText(obj.sticker, 0, 0);
+      } else if ('src' in obj) { // ImageElement
+         const imageAsset = objectImageCache.current[obj.id];
+         if (imageAsset && imageAsset.complete) {
+            ctx.drawImage(imageAsset, -obj.width/2, -obj.height/2, obj.width, obj.height);
+         }
       }
       
       ctx.restore();
@@ -455,14 +468,14 @@ export function Editor({ image }: EditorProps) {
       }
     });
 
-  }, [textElements, stickerElements, watermark, selectedObjectId]);
+  }, [textElements, stickerElements, watermark, imageElements, selectedObjectId]);
 
   useEffect(() => {
     if (editMode === 'erase' || editMode === 'inpaint') {
       setupDrawingCanvas();
       window.addEventListener('resize', setupDrawingCanvas);
     }
-    if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark') {
+    if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image') {
       drawObjectsOnCanvas();
     }
     return () => {
@@ -493,7 +506,7 @@ export function Editor({ image }: EditorProps) {
     let canvas: HTMLCanvasElement | null = null;
     if (editMode === 'erase' || editMode === 'inpaint') {
       canvas = previewCanvasRef.current;
-    } else if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark') {
+    } else if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image') {
       canvas = objectCanvasRef.current;
     }
     
@@ -682,6 +695,59 @@ export function Editor({ image }: EditorProps) {
   const updateStickerElement = (id: string, updates: Partial<StickerElement>) => {
     setStickerElements(stickerElements.map(s => s.id === id ? { ...s, ...updates } : s));
   };
+
+  const handleAddImageLayer = (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+          const src = e.target?.result as string;
+          const img = new window.Image();
+          img.onload = () => {
+            const canvas = objectCanvasRef.current;
+            if (!canvas) return;
+            
+            const MAX_WIDTH = canvas.width * 0.5;
+            const MAX_HEIGHT = canvas.height * 0.5;
+
+            let width = img.width;
+            let height = img.height;
+
+            if (width > MAX_WIDTH) {
+                height = (MAX_WIDTH / width) * height;
+                width = MAX_WIDTH;
+            }
+            if (height > MAX_HEIGHT) {
+                width = (MAX_HEIGHT / height) * width;
+                height = MAX_HEIGHT;
+            }
+
+            const newImage: ImageElement = {
+                id: Date.now().toString(),
+                src,
+                width,
+                height,
+                rotation: 0,
+                x: canvas.width / 2,
+                y: canvas.height / 2,
+            };
+
+            objectImageCache.current[newImage.id] = img;
+            setImageElements([...imageElements, newImage]);
+            setSelectedObjectId({id: newImage.id, type: 'image'});
+            setEditMode('image');
+          };
+          img.src = src;
+      };
+      reader.readAsDataURL(file);
+      // Reset input value to allow uploading the same file again
+      if(event.target) event.target.value = "";
+  };
+  
+  const updateImageElement = (id: string, updates: Partial<ImageElement>) => {
+    setImageElements(imageElements.map(img => img.id === id ? { ...img, ...updates } : img));
+  };
   
   const updateWatermarkElement = (updates: Partial<WatermarkElement>) => {
       if (!watermark) return;
@@ -704,27 +770,27 @@ export function Editor({ image }: EditorProps) {
   };
 
 
-  const getHitRegion = (x: number, y: number, obj: TextElement | StickerElement | WatermarkElement): InteractionMode => {
+  const getHitRegion = (x: number, y: number, obj: TextElement | StickerElement | WatermarkElement | ImageElement): InteractionMode => {
     const canvas = objectCanvasRef.current;
     if (!canvas) return 'none';
     const ctx = canvas.getContext('2d');
     if (!ctx) return 'none';
 
-    const { width, height } = getObjectMetrics(obj, ctx);
-    const padding = 10;
-    const boxWidth = width + padding * 2;
-    const boxHeight = height + padding * 2;
-    
     // Watermark is only draggable
     if ('opacity' in obj) {
-        if (Math.abs(x - obj.x) < boxWidth / 2 && Math.abs(y - obj.y) < boxHeight / 2) {
+        const { width, height } = getObjectMetrics(obj, ctx);
+        if (Math.abs(x - obj.x) < width / 2 && Math.abs(y - obj.y) < height / 2) {
             return 'dragging';
         }
         return 'none';
     }
 
+    const { width, height } = getObjectMetrics(obj, ctx);
+    const padding = 10;
+    const boxWidth = width + padding * 2;
+    const boxHeight = height + padding * 2;
 
-    const angle = -obj.rotation * Math.PI / 180;
+    const angle = 'rotation' in obj ? -obj.rotation * Math.PI / 180 : 0;
     const s = Math.sin(angle);
     const c = Math.cos(angle);
 
@@ -734,14 +800,14 @@ export function Editor({ image }: EditorProps) {
     // Check rotation handle
     const rotHandleX = 0;
     const rotHandleY = -boxHeight / 2 - ROTATION_HANDLE_OFFSET;
-    if (Math.hypot(localX - rotHandleX, localY - rotHandleY) < HANDLE_SIZE) {
+    if ('rotation' in obj && Math.hypot(localX - rotHandleX, localY - rotHandleY) < HANDLE_SIZE) {
         return 'rotating';
     }
     
     // Check resize handle
     const resizeHandleX = boxWidth / 2;
     const resizeHandleY = boxHeight / 2;
-    if (localX > resizeHandleX - HANDLE_SIZE && localX < resizeHandleX + HANDLE_SIZE &&
+    if ('rotation' in obj && localX > resizeHandleX - HANDLE_SIZE && localX < resizeHandleX + HANDLE_SIZE &&
         localY > resizeHandleY - HANDLE_SIZE && localY < resizeHandleY + HANDLE_SIZE) {
         return 'resizing';
     }
@@ -760,10 +826,10 @@ export function Editor({ image }: EditorProps) {
     const { x, y } = getCanvasCoordinates(e);
     
     let interaction: InteractionMode = 'none';
-    let clickedObject: TextElement | StickerElement | WatermarkElement | undefined;
+    let clickedObject: TextElement | StickerElement | WatermarkElement | ImageElement | undefined;
     let clickedObjectType: InteractionTarget = 'none';
 
-    const allObjects: (TextElement | StickerElement | WatermarkElement)[] = [...stickerElements, ...textElements];
+    const allObjects: (TextElement | StickerElement | WatermarkElement | ImageElement)[] = [...imageElements, ...stickerElements, ...textElements];
     if (watermark) {
         allObjects.push(watermark);
     }
@@ -786,7 +852,7 @@ export function Editor({ image }: EditorProps) {
             if (hit !== 'none') {
                 interaction = hit;
                 clickedObject = obj;
-                clickedObjectType = 'text' in obj && !('opacity' in obj) ? 'text' : ('sticker' in obj ? 'sticker' : 'watermark');
+                clickedObjectType = 'text' in obj && !('opacity' in obj) ? 'text' : ('sticker' in obj ? 'sticker' : ('src' in obj ? 'image' : 'watermark'));
                 setSelectedObjectId({id: obj.id, type: clickedObjectType});
                 break;
             }
@@ -810,7 +876,7 @@ export function Editor({ image }: EditorProps) {
     const start = interactionStartRef.current;
     if (!start.object) return;
     
-    let updateFunction;
+    let updateFunction: ((id: string, updates: any) => void) | ((updates: any) => void);
     let currentObject;
 
     switch(selectedObjectId.type) {
@@ -821,6 +887,10 @@ export function Editor({ image }: EditorProps) {
         case 'sticker':
             updateFunction = updateStickerElement;
             currentObject = stickerElements.find(s => s.id === selectedObjectId.id);
+            break;
+        case 'image':
+            updateFunction = updateImageElement;
+            currentObject = imageElements.find(img => img.id === selectedObjectId.id);
             break;
         case 'watermark':
             updateFunction = updateWatermarkElement;
@@ -837,27 +907,37 @@ export function Editor({ image }: EditorProps) {
             y: start.object.y + (y - start.y)
         };
         if (selectedObjectId.type === 'watermark') {
-            updateWatermarkElement(updates);
+            (updateFunction as (updates: any) => void)(updates);
         } else {
             (updateFunction as (id: string, updates: any) => void)(selectedObjectId.id, updates);
         }
-    } else if (interactionMode === 'resizing' && 'rotation' in currentObject) {
+    } else if (interactionMode === 'resizing' && 'rotation' in currentObject && 'rotation' in start.object) {
         const dX = x - currentObject.x;
         const dY = y - currentObject.y;
-        const startDx = start.x - start.object.x;
-        const startDy = start.y - start.object.y;
         
         const dist = Math.hypot(dX, dY);
+        
+        const angle = -currentObject.rotation * Math.PI / 180;
+        const s = Math.sin(angle);
+        const c = Math.cos(angle);
+        const startDx = (start.x - start.object.x) * c - (start.y - start.object.y) * s;
+        const startDy = (start.x - start.object.x) * s + (start.y - start.object.y) * c;
         const startDist = Math.hypot(startDx, startDy);
+
 
         if (startDist > 0) {
             const scale = dist / startDist;
-            const currentSize = 'fontSize' in start.object ? start.object.fontSize : ('size' in start.object ? start.object.size : 0);
-            const newSize = Math.max(10, currentSize * scale);
-            if(selectedObjectId.type === 'text') {
+            
+            if (selectedObjectId.type === 'text' && 'fontSize' in start.object) {
+                const newSize = Math.max(10, start.object.fontSize * scale);
                 updateTextElement(selectedObjectId.id, { fontSize: newSize });
-            } else if (selectedObjectId.type === 'sticker') {
+            } else if (selectedObjectId.type === 'sticker' && 'size' in start.object) {
+                const newSize = Math.max(20, start.object.size * scale);
                 updateStickerElement(selectedObjectId.id, { size: newSize });
+            } else if (selectedObjectId.type === 'image' && 'width' in start.object && 'height' in start.object) {
+                const newWidth = Math.max(20, start.object.width * scale);
+                const newHeight = (newWidth / start.object.width) * start.object.height;
+                updateImageElement(selectedObjectId.id, { width: newWidth, height: newHeight });
             }
         }
     } else if (interactionMode === 'rotating' && 'rotation' in currentObject) {
@@ -889,7 +969,7 @@ export function Editor({ image }: EditorProps) {
       
       ctx.drawImage(sourceImage, 0, 0);
       
-      const allObjects: (TextElement | StickerElement | WatermarkElement)[] = [...textElements, ...stickerElements];
+      const allObjects: (TextElement | StickerElement | WatermarkElement | ImageElement)[] = [...imageElements, ...textElements, ...stickerElements];
       if (watermark) {
         allObjects.push(watermark);
       }
@@ -897,6 +977,12 @@ export function Editor({ image }: EditorProps) {
       allObjects.forEach(obj => {
         ctx.save();
         
+        ctx.translate(obj.x * scaleX, obj.y * scaleY);
+
+        if ('rotation' in obj) { // Not a watermark
+            ctx.rotate(obj.rotation * Math.PI / 180);
+        }
+
         if ('text' in obj) { // Text or Watermark
             if ('opacity' in obj) { // Watermark
                 ctx.globalAlpha = obj.opacity;
@@ -917,24 +1003,22 @@ export function Editor({ image }: EditorProps) {
                   ctx.lineWidth = 2 * scaleX;
                 }
             }
-        } else { // StickerElement
-            ctx.font = `${obj.size * scaleX}px sans-serif`;
-        }
-
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-  
-        ctx.translate(obj.x * scaleX, obj.y * scaleY);
-
-        if (!('opacity' in obj)) { // Not a watermark
-            ctx.rotate(obj.rotation * Math.PI / 180);
-        }
-
-        if ('text' in obj) {
+             ctx.textAlign = 'center';
+             ctx.textBaseline = 'middle';
             if ('stroke' in obj && obj.stroke) ctx.strokeText(obj.text, 0, 0);
             ctx.fillText(obj.text, 0, 0);
-        } else {
+        } else if ('sticker' in obj) { // StickerElement
+            ctx.font = `${obj.size * scaleX}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
             ctx.fillText(obj.sticker, 0, 0);
+        } else if ('src' in obj) { // ImageElement
+             const imageAsset = objectImageCache.current[obj.id];
+             if (imageAsset) {
+                const scaledWidth = obj.width * scaleX;
+                const scaledHeight = obj.height * scaleY;
+                ctx.drawImage(imageAsset, -scaledWidth/2, -scaledHeight/2, scaledWidth, scaledHeight);
+             }
         }
         ctx.restore();
       });
@@ -944,6 +1028,7 @@ export function Editor({ image }: EditorProps) {
       // Reset states
       setTextElements([]);
       setStickerElements([]);
+      setImageElements([]);
       setWatermark(null);
       setSelectedObjectId({id: null, type: 'none'});
     }
@@ -1019,12 +1104,13 @@ export function Editor({ image }: EditorProps) {
       setTextElements([]); 
       setStickerElements([]);
       setWatermark(null);
+      setImageElements([]);
       setSelectedObjectId({id: null, type: 'none'})
   };
 
   const inEditMode = editMode !== 'none';
   const displayedImage = isComparing ? image : activeImage;
-  const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark';
+  const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image';
   const inDrawingMode = editMode === 'erase' || editMode === 'inpaint';
 
   return (
@@ -1117,7 +1203,8 @@ export function Editor({ image }: EditorProps) {
                editMode === 'crop' ? 'Crop Image' : 
                editMode === 'text' ? 'Add Text' :
                editMode === 'watermark' ? 'Add Watermark' :
-               editMode === 'stickers' ? 'Add Stickers' : 'Editing Tools' }
+               editMode === 'stickers' ? 'Add Stickers' : 
+               editMode === 'image' ? 'Add Image Layer' : 'Editing Tools' }
             </h2>
             {!inEditMode && (
             <div className="flex items-center gap-1">
@@ -1367,6 +1454,24 @@ export function Editor({ image }: EditorProps) {
                         <Button onClick={handleApplyObjects}>Apply Watermark</Button>
                     </div>
                 </div>
+            ) : editMode === 'image' ? (
+                 <div className="space-y-4">
+                     <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">Add Another Image</Button>
+                     {selectedImage && (
+                        <div className="space-y-4 p-2 border rounded-lg">
+                            <h3 className="font-semibold text-center">Edit Image Layer</h3>
+                             <div>
+                                <Label htmlFor="image-rotation">Rotate</Label>
+                                <Slider id="image-rotation" min={-180} max={180} value={[selectedImage.rotation]} onValueChange={([v]) => updateImageElement(selectedImage.id, {rotation: v})} />
+                            </div>
+                            <Button variant="destructive" size="sm" onClick={() => setImageElements(imageElements.filter(t => t.id !== selectedImage.id))}>Remove Image</Button>
+                        </div>
+                    )}
+                     <div className="grid grid-cols-2 gap-2 pt-4">
+                        <Button variant="outline" onClick={cancelObjectEditing}>Cancel</Button>
+                        <Button onClick={handleApplyObjects}>Apply Images</Button>
+                    </div>
+                 </div>
             ) : (
             <Accordion type="multiple" defaultValue={['ai-tools', 'adjustments']} className="w-full">
               <AccordionItem value="ai-tools">
@@ -1387,7 +1492,10 @@ export function Editor({ image }: EditorProps) {
                   <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full">
                     <Smile className="mr-2 h-4 w-4" /> Add Stickers
                   </Button>
-                  <Button onClick={() => setEditMode('watermark')} className="w-full col-span-2">
+                   <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">
+                    <ImagePlus className="mr-2 h-4 w-4" /> Add Image
+                  </Button>
+                  <Button onClick={() => setEditMode('watermark')} className="w-full">
                     <Copyright className="mr-2 h-4 w-4" /> Watermark
                   </Button>
                 </AccordionContent>
@@ -1458,6 +1566,7 @@ export function Editor({ image }: EditorProps) {
             </Accordion>
             )}
           </div>
+          <input type="file" ref={overlayImageInputRef} className="hidden" accept="image/*" onChange={handleAddImageLayer} />
 
           {!inEditMode && (<div className="mt-auto pt-4">
             <Button size="lg" className="w-full bg-accent hover:bg-accent/90" onClick={handleExport}>

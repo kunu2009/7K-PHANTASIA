@@ -44,3 +44,13 @@ export type WatermarkElement = {
     x: number;
     y: number;
 };
+
+export type ImageElement = {
+    id: string;
+    src: string;
+    width: number;
+    height: number;
+    rotation: number;
+    x: number;
+    y: number;
+};
