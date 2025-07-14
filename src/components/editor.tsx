@@ -22,7 +22,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, ScanSearch, Loader, Ratio } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction } from '@/lib/actions';
@@ -983,8 +983,8 @@ export function Editor({ image }: EditorProps) {
         <CardContent className="p-4 flex-1 flex flex-col min-h-0">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-headline font-bold">
-              {editMode === 'erase' ? 'Erase Background' : 
-               editMode === 'inpaint' ? 'Object Remover' :
+              {editMode === 'erase' ? 'Background Eraser' : 
+               editMode === 'inpaint' ? 'Erase Tool' :
                editMode === 'crop' ? 'Crop Image' : 
                editMode === 'text' ? 'Add Text' :
                editMode === 'stickers' ? 'Add Stickers' : 'Editing Tools' }
@@ -1209,10 +1209,10 @@ export function Editor({ image }: EditorProps) {
                     <Wand2 className="mr-2 h-4 w-4" /> Auto Enhance
                   </Button>
                    <Button onClick={() => setEditMode('erase')} className="w-full">
-                    <Scissors className="mr-2 h-4 w-4" /> BG Remover
+                    <Scissors className="mr-2 h-4 w-4" /> BG Eraser
                   </Button>
                    <Button onClick={() => setEditMode('inpaint')} className="w-full">
-                    <ScanSearch className="mr-2 h-4 w-4" /> Object Remover
+                    <Wand2 className="mr-2 h-4 w-4" /> Erase Tool
                   </Button>
                   <Button onClick={() => { setEditMode('text'); setSelectedObjectId({id: null, type: 'text'}); }} className="w-full">
                     <Type className="mr-2 h-4 w-4" /> Add Text
