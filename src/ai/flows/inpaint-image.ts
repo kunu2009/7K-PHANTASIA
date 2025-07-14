@@ -42,24 +42,29 @@ const inpaintImageFlow = ai.defineFlow(
     outputSchema: InpaintImageOutputSchema,
   },
   async ({ photoDataUri, maskDataUri }) => {
-    const { media } = await ai.generate({
-      model: 'googleai/gemini-2.0-flash-preview-image-generation',
-      prompt: [
-        { media: { url: photoDataUri } },
-        { media: { url: maskDataUri } },
-        { text: 'You are an expert photo editor. Inpaint the area of the provided image that is indicated by the white area in the mask image. Remove the object and fill in the background naturally.' },
-      ],
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'],
-      },
-    });
+    try {
+      const { media } = await ai.generate({
+        model: 'googleai/gemini-2.0-flash-preview-image-generation',
+        prompt: [
+          { text: 'You are an expert photo editor. Inpaint the area of the provided image that is indicated by the white area in the mask image. Remove the object and fill in the background naturally.' },
+          { media: { url: photoDataUri } },
+          { media: { url: maskDataUri } },
+        ],
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+        },
+      });
 
-    if (!media || !media.url) {
-        throw new Error('The AI failed to return an inpainted image.');
+      if (!media || !media.url) {
+          throw new Error('The AI model did not return an image.');
+      }
+
+      return {
+          inpaintedPhotoDataUri: media.url
+      };
+    } catch (error) {
+        console.error("Error during inpainting flow:", error);
+        throw new Error(`AI generation failed. Details: ${error instanceof Error ? error.message : String(error)}`);
     }
-
-    return {
-        inpaintedPhotoDataUri: media.url
-    };
   }
 );
