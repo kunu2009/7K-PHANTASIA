@@ -22,9 +22,10 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, ScanSearch, Loader } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
+import { inpaintImageAction } from '@/lib/actions';
 
 
 interface EditorProps {
@@ -46,7 +47,7 @@ const STICKERS = ['😀', '😂', '😍', '😎', '🥳', '🚀', '❤️', '⭐
 
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers';
+type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
 type InteractionTarget = 'none' | 'text' | 'sticker';
 
@@ -70,6 +71,8 @@ export function Editor({ image }: EditorProps) {
   
   const [activeImage, setActiveImage] = useState(history[historyIndex]);
   const [isComparing, setIsComparing] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+
 
   const imageRef = useRef<HTMLImageElement>(null);
   const { toast } = useToast();
@@ -80,13 +83,13 @@ export function Editor({ image }: EditorProps) {
   const [editMode, setEditMode] = useState<EditMode>('none');
   const [brushSize, setBrushSize] = useState(40);
   
-  const eraseCanvasRef = useRef<HTMLCanvasElement>(null);
-  const erasePreviewCanvasRef = useRef<HTMLCanvasElement>(null);
+  const drawingCanvasRef = useRef<HTMLCanvasElement>(null); // For the base image in drawing modes
+  const previewCanvasRef = useRef<HTMLCanvasElement>(null); // For drawing the mask/preview
   const [isDrawing, setIsDrawing] = useState(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
 
-  const [eraseHistory, setEraseHistory] = useState<string[]>([]);
-  const [eraseHistoryIndex, setEraseHistoryIndex] = useState(-1);
+  const [drawHistory, setDrawHistory] = useState<string[]>([]);
+  const [drawHistoryIndex, setDrawHistoryIndex] = useState(-1);
 
   // Object Interaction state
   const objectCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -102,8 +105,8 @@ export function Editor({ image }: EditorProps) {
   const canUndo = historyIndex > 0;
   const canRedo = historyIndex < history.length - 1;
 
-  const canUndoErase = eraseHistoryIndex > 0;
-  const canRedoErase = eraseHistoryIndex < eraseHistory.length - 1;
+  const canUndoDraw = drawHistoryIndex > 0;
+  const canRedoDraw = drawHistoryIndex < drawHistory.length - 1;
 
   useEffect(() => {
     setActiveImage(history[historyIndex]);
@@ -209,20 +212,20 @@ export function Editor({ image }: EditorProps) {
     setEditMode('none');
   }, [completedCrop, activeImage, toast]);
   
-  const saveEraseHistory = () => {
-    const canvas = erasePreviewCanvasRef.current;
+  const saveDrawHistory = () => {
+    const canvas = previewCanvasRef.current;
     if (!canvas) return;
-    const newHistory = eraseHistory.slice(0, eraseHistoryIndex + 1);
+    const newHistory = drawHistory.slice(0, drawHistoryIndex + 1);
     newHistory.push(canvas.toDataURL());
-    setEraseHistory(newHistory);
-    setEraseHistoryIndex(newHistory.length - 1);
+    setDrawHistory(newHistory);
+    setDrawHistoryIndex(newHistory.length - 1);
   };
 
-  const handleUndoErase = () => {
-    if (!canUndoErase) return;
-    const newIndex = eraseHistoryIndex - 1;
-    setEraseHistoryIndex(newIndex);
-    const canvas = erasePreviewCanvasRef.current;
+  const handleUndoDraw = () => {
+    if (!canUndoDraw) return;
+    const newIndex = drawHistoryIndex - 1;
+    setDrawHistoryIndex(newIndex);
+    const canvas = previewCanvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const img = new window.Image();
@@ -230,14 +233,14 @@ export function Editor({ image }: EditorProps) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
     };
-    img.src = eraseHistory[newIndex];
+    img.src = drawHistory[newIndex];
   };
 
-  const handleRedoErase = () => {
-    if (!canRedoErase) return;
-    const newIndex = eraseHistoryIndex + 1;
-    setEraseHistoryIndex(newIndex);
-    const canvas = erasePreviewCanvasRef.current;
+  const handleRedoDraw = () => {
+    if (!canRedoDraw) return;
+    const newIndex = drawHistoryIndex + 1;
+    setDrawHistoryIndex(newIndex);
+    const canvas = previewCanvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (!canvas || !ctx) return;
     const img = new window.Image();
@@ -245,21 +248,21 @@ export function Editor({ image }: EditorProps) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(img, 0, 0);
     };
-    img.src = eraseHistory[newIndex];
+    img.src = drawHistory[newIndex];
   };
 
-  const setupEraseCanvas = useCallback(() => {
-    const eraseLayer = eraseCanvasRef.current;
-    const previewLayer = erasePreviewCanvasRef.current;
+  const setupDrawingCanvas = useCallback(() => {
+    const baseLayer = drawingCanvasRef.current;
+    const previewLayer = previewCanvasRef.current;
 
-    if (!eraseLayer || !previewLayer) return;
+    if (!baseLayer || !previewLayer) return;
 
     const img = new window.Image();
     img.src = activeImage;
     img.crossOrigin = "anonymous";
     img.onload = () => {
         const { naturalWidth, naturalHeight } = img;
-        const parent = eraseLayer.parentElement;
+        const parent = baseLayer.parentElement;
         if (parent) {
             const aspect = naturalWidth / naturalHeight;
             const parentWidth = parent.clientWidth;
@@ -276,14 +279,14 @@ export function Editor({ image }: EditorProps) {
               width = parentHeight * aspect;
             }
             
-            [eraseLayer, previewLayer].forEach(canvas => {
+            [baseLayer, previewLayer].forEach(canvas => {
                 canvas.width = width;
                 canvas.height = height;
             });
 
-            const eraseCtx = eraseLayer.getContext('2d');
-            if (eraseCtx) {
-              eraseCtx.drawImage(img, 0, 0, width, height);
+            const baseCtx = baseLayer.getContext('2d');
+            if (baseCtx) {
+              baseCtx.drawImage(img, 0, 0, width, height);
             }
             const previewCtx = previewLayer.getContext('2d');
             if (previewCtx) {
@@ -291,8 +294,8 @@ export function Editor({ image }: EditorProps) {
             }
             // Initial state for eraser history
             const initialHistoryImage = previewLayer.toDataURL();
-            setEraseHistory([initialHistoryImage]);
-            setEraseHistoryIndex(0);
+            setDrawHistory([initialHistoryImage]);
+            setDrawHistoryIndex(0);
         }
     };
   }, [activeImage]);
@@ -412,22 +415,22 @@ export function Editor({ image }: EditorProps) {
   }, [textElements, stickerElements, selectedObjectId]);
 
   useEffect(() => {
-    if (editMode === 'erase') {
-      setupEraseCanvas();
-      window.addEventListener('resize', setupEraseCanvas);
+    if (editMode === 'erase' || editMode === 'inpaint') {
+      setupDrawingCanvas();
+      window.addEventListener('resize', setupDrawingCanvas);
     }
     if (editMode === 'text' || editMode === 'stickers') {
       drawObjectsOnCanvas();
     }
     return () => {
-        window.removeEventListener('resize', setupEraseCanvas);
+        window.removeEventListener('resize', setupDrawingCanvas);
     }
-  }, [editMode, activeImage, setupEraseCanvas, drawObjectsOnCanvas]);
+  }, [editMode, activeImage, setupDrawingCanvas, drawObjectsOnCanvas]);
 
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     let canvas: HTMLCanvasElement | null = null;
-    if (editMode === 'erase') {
-      canvas = erasePreviewCanvasRef.current;
+    if (editMode === 'erase' || editMode === 'inpaint') {
+      canvas = previewCanvasRef.current;
     } else if (editMode === 'text' || editMode === 'stickers') {
       canvas = objectCanvasRef.current;
     }
@@ -454,7 +457,7 @@ export function Editor({ image }: EditorProps) {
   const stopDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     e.preventDefault();
     if (isDrawing) {
-      saveEraseHistory();
+      saveDrawHistory();
     }
     setIsDrawing(false);
     lastPointRef.current = null;
@@ -464,13 +467,19 @@ export function Editor({ image }: EditorProps) {
     e.preventDefault();
     if (!isDrawing) return;
 
-    const previewCtx = erasePreviewCanvasRef.current?.getContext('2d');
+    const previewCtx = previewCanvasRef.current?.getContext('2d');
     if (!previewCtx) return;
 
     const { x, y } = getCanvasCoordinates(e);
     
-    previewCtx.fillStyle = 'rgba(255, 0, 0, 0.5)';
-    previewCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+    if(editMode === 'erase') {
+        previewCtx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+        previewCtx.strokeStyle = 'rgba(255, 0, 0, 0.5)';
+    } else if (editMode === 'inpaint') {
+        previewCtx.fillStyle = 'rgba(0, 0, 255, 0.5)';
+        previewCtx.strokeStyle = 'rgba(0, 0, 255, 0.5)';
+    }
+    
     previewCtx.lineWidth = brushSize;
     previewCtx.lineCap = 'round';
     previewCtx.lineJoin = 'round';
@@ -492,22 +501,68 @@ export function Editor({ image }: EditorProps) {
   };
 
   const handleApplyErase = () => {
-      const eraseLayer = eraseCanvasRef.current;
-      const previewLayer = erasePreviewCanvasRef.current;
-      if (!eraseLayer || !previewLayer) return;
+      const baseLayer = drawingCanvasRef.current;
+      const previewLayer = previewCanvasRef.current;
+      if (!baseLayer || !previewLayer) return;
 
-      const eraseCtx = eraseLayer.getContext('2d');
-      if (!eraseCtx) return;
+      const baseCtx = baseLayer.getContext('2d');
+      if (!baseCtx) return;
 
-      eraseCtx.globalCompositeOperation = 'destination-out';
-      eraseCtx.drawImage(previewLayer, 0, 0);
+      baseCtx.globalCompositeOperation = 'destination-out';
+      baseCtx.drawImage(previewLayer, 0, 0);
 
-      const resultDataUrl = eraseLayer.toDataURL('image/png');
+      const resultDataUrl = baseLayer.toDataURL('image/png');
       updateHistory(resultDataUrl);
       setEditMode('none');
   };
 
-  const handleCancelErase = () => {
+  const handleApplyInpaint = async () => {
+      const previewLayer = previewCanvasRef.current;
+      if (!previewLayer) return;
+
+      // Create a new canvas to generate the black and white mask
+      const maskCanvas = document.createElement('canvas');
+      maskCanvas.width = previewLayer.width;
+      maskCanvas.height = previewLayer.height;
+      const maskCtx = maskCanvas.getContext('2d');
+      if (!maskCtx) return;
+
+      // Draw the blue preview onto the mask canvas
+      maskCtx.drawImage(previewLayer, 0, 0);
+
+      // Process the image data to create a pure B&W mask
+      const imageData = maskCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+      const data = imageData.data;
+      for (let i = 0; i < data.length; i += 4) {
+          // If the pixel has any opacity (was painted), make it pure white
+          if (data[i + 3] > 0) {
+              data[i] = 255;
+              data[i + 1] = 255;
+              data[i + 2] = 255;
+              data[i + 3] = 255;
+          }
+      }
+      maskCtx.putImageData(imageData, 0, 0);
+
+      const maskDataUri = maskCanvas.toDataURL('image/png');
+      
+      setIsProcessing(true);
+      try {
+          const result = await inpaintImageAction({
+              photoDataUri: activeImage,
+              maskDataUri: maskDataUri,
+          });
+          updateHistory(result.inpaintedPhotoDataUri);
+      } catch (e) {
+          toast({ variant: 'destructive', title: 'Inpainting Failed', description: (e as Error).message });
+      } finally {
+          setIsProcessing(false);
+          setEditMode('none');
+      }
+  };
+
+
+  const handleCancelDrawing = () => {
       setEditMode('none');
   };
 
@@ -790,7 +845,7 @@ export function Editor({ image }: EditorProps) {
     };
   };
 
-  const handleAutoEnhance = async () => {
+  const handleAutoEnhance = () => {
     applyPreset(AUTO_ENHANCE_PRESET);
   };
 
@@ -814,15 +869,16 @@ export function Editor({ image }: EditorProps) {
   const inEditMode = editMode !== 'none';
   const displayedImage = isComparing ? image : activeImage;
   const inObjectMode = editMode === 'text' || editMode === 'stickers';
+  const inDrawingMode = editMode === 'erase' || editMode === 'inpaint';
 
   return (
     <div className="grid md:grid-cols-3 gap-8 h-full md:h-[calc(100vh-10rem)] grid-rows-[minmax(0,1fr)_auto] md:grid-rows-1">
       <div className="md:col-span-2 bg-muted/40 rounded-xl flex items-center justify-center p-4 relative overflow-hidden min-h-[300px] md:min-h-0 h-full">
-        {editMode === 'erase' && (
+        {inDrawingMode && (
           <div className="relative w-full h-full flex items-center justify-center">
-            <canvas ref={eraseCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
+            <canvas ref={drawingCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
             <canvas 
-              ref={erasePreviewCanvasRef}
+              ref={previewCanvasRef}
               className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair touch-none"
               onMouseDown={startDrawing}
               onMouseUp={stopDrawing}
@@ -885,6 +941,14 @@ export function Editor({ image }: EditorProps) {
                   )}
             </div>
         )}
+
+        {isProcessing && (
+          <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center z-10">
+              <Loader className="w-12 h-12 animate-spin text-primary" />
+              <p className="mt-4 text-lg">AI is thinking...</p>
+          </div>
+        )}
+
       </div>
 
       <Card className="flex flex-col min-h-0">
@@ -892,6 +956,7 @@ export function Editor({ image }: EditorProps) {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-headline font-bold">
               {editMode === 'erase' ? 'Erase Background' : 
+               editMode === 'inpaint' ? 'Object Remover' :
                editMode === 'crop' ? 'Crop Image' : 
                editMode === 'text' ? 'Add Text' :
                editMode === 'stickers' ? 'Add Stickers' : 'Editing Tools' }
@@ -952,7 +1017,7 @@ export function Editor({ image }: EditorProps) {
           </div>
 
           <div className="flex-1 overflow-y-auto pr-2 min-h-0">
-            {editMode === 'erase' ? (
+            {inDrawingMode ? (
                <div className="space-y-6">
                  <div>
                     <Label htmlFor="brush-size" className="flex items-center gap-2 mb-2">
@@ -969,14 +1034,18 @@ export function Editor({ image }: EditorProps) {
                     />
                  </div>
                  <div className="flex items-center justify-center p-4 bg-muted/50 rounded-lg">
-                    <div className="w-20 h-20 rounded-full bg-red-500/50 flex items-center justify-center" style={{ width: brushSize, height: brushSize }}>
+                    <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ 
+                        width: brushSize, 
+                        height: brushSize,
+                        backgroundColor: editMode === 'erase' ? 'rgba(255,0,0,0.5)' : 'rgba(0,0,255,0.5)'
+                     }}>
                     </div>
                  </div>
                  <div className="flex items-center justify-center gap-2">
                      <TooltipProvider>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={handleUndoErase} disabled={!canUndoErase}>
+                                <Button variant="ghost" size="icon" onClick={handleUndoDraw} disabled={!canUndoDraw}>
                                     <Undo className="w-4 h-4" />
                                 </Button>
                             </TooltipTrigger>
@@ -984,7 +1053,7 @@ export function Editor({ image }: EditorProps) {
                         </Tooltip>
                         <Tooltip>
                             <TooltipTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={handleRedoErase} disabled={!canRedoErase}>
+                                <Button variant="ghost" size="icon" onClick={handleRedoDraw} disabled={!canRedoDraw}>
                                     <Redo className="w-4 h-4" />
                                 </Button>
                             </TooltipTrigger>
@@ -993,8 +1062,8 @@ export function Editor({ image }: EditorProps) {
                      </TooltipProvider>
                  </div>
                  <div className="grid grid-cols-2 gap-2 pt-4">
-                  <Button variant="outline" onClick={handleCancelErase}>Cancel</Button>
-                  <Button onClick={handleApplyErase}>Apply Erase</Button>
+                  <Button variant="outline" onClick={handleCancelDrawing}>Cancel</Button>
+                  <Button onClick={editMode === 'erase' ? handleApplyErase : handleApplyInpaint}>Apply</Button>
                  </div>
                </div>
             ) : editMode === 'crop' ? (
@@ -1099,10 +1168,13 @@ export function Editor({ image }: EditorProps) {
                    <Button onClick={() => setEditMode('erase')} className="w-full">
                     <Scissors className="mr-2 h-4 w-4" /> BG Remover
                   </Button>
+                   <Button onClick={() => setEditMode('inpaint')} className="w-full">
+                    <ScanSearch className="mr-2 h-4 w-4" /> Object Remover
+                  </Button>
                   <Button onClick={() => { setEditMode('text'); setSelectedObjectId({id: null, type: 'text'}); }} className="w-full">
                     <Type className="mr-2 h-4 w-4" /> Add Text
                   </Button>
-                  <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full col-span-2">
+                  <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full">
                     <Smile className="mr-2 h-4 w-4" /> Add Stickers
                   </Button>
                 </AccordionContent>
