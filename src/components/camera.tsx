@@ -67,7 +67,7 @@ export function Camera({ onImageCapture }: CameraProps) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
 
-        // Flip the image if it's from the front camera
+        // Flip the image horizontally if it's from the front camera to un-mirror it
         if (isFrontCamera) {
           context.save();
           context.scale(-1, 1);
@@ -106,6 +106,7 @@ export function Camera({ onImageCapture }: CameraProps) {
       </div>
 
       <div className="flex-1 flex items-center justify-center relative">
+        {/* The video element is visually flipped via CSS for a natural mirror effect */}
         <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline style={{ transform: isFrontCamera ? 'scaleX(-1)' : 'scaleX(1)' }}/>
         {hasCameraPermission === false && (
             <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 p-4">
