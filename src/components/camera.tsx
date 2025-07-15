@@ -1,3 +1,4 @@
+
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,12 @@ export function Camera({ onImageCapture }: CameraProps) {
   const { toast } = useToast();
 
   const startCamera = useCallback(async (front = false) => {
+    // Stop any existing tracks before starting a new one
+    if (videoRef.current && videoRef.current.srcObject) {
+      const stream = videoRef.current.srcObject as MediaStream;
+      stream.getTracks().forEach(track => track.stop());
+    }
+
     try {
         const constraints: MediaStreamConstraints = {
             video: {
@@ -59,7 +66,17 @@ export function Camera({ onImageCapture }: CameraProps) {
       if (context) {
         canvas.width = video.videoWidth;
         canvas.height = video.videoHeight;
-        context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+
+        // Flip the image if it's from the front camera
+        if (isFrontCamera) {
+          context.save();
+          context.scale(-1, 1);
+          context.drawImage(video, -video.videoWidth, 0, video.videoWidth, video.videoHeight);
+          context.restore();
+        } else {
+          context.drawImage(video, 0, 0, video.videoWidth, video.videoHeight);
+        }
+
         const dataUrl = canvas.toDataURL('image/png');
         onImageCapture(dataUrl);
       }
@@ -73,10 +90,6 @@ export function Camera({ onImageCapture }: CameraProps) {
   };
 
   const handleSwitchCamera = () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        const stream = videoRef.current.srcObject as MediaStream;
-        stream.getTracks().forEach(track => track.stop());
-      }
       setIsFrontCamera(prev => !prev);
   }
 
