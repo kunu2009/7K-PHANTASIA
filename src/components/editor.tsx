@@ -252,7 +252,7 @@ export function Editor({ image, onReset }: EditorProps) {
     if (!canvas) return;
     const newDrawHistory = drawHistory.slice(0, drawHistoryIndex + 1);
     newDrawHistory.push(canvas.toDataURL());
-    setDrawHistory(newDrawHistory);
+    setDrawHistory(newNewDrawHistory);
     setDrawHistoryIndex(newDrawHistory.length - 1);
   };
 
@@ -1620,27 +1620,17 @@ export function Editor({ image, onReset }: EditorProps) {
 
       {/* Bottom Navigation */}
       <div className="md:hidden h-20" /> {/* Spacer for bottom nav on mobile */}
-      <div className="fixed bottom-0 left-0 right-0 h-20 bg-card border-t z-20 md:relative md:h-auto md:border-0 md:bg-transparent">
-        <div className="container mx-auto h-full flex items-center justify-center">
-            <div className="hidden md:flex w-full items-center justify-center p-4 rounded-lg bg-card border gap-4">
-                 <BottomNavButton icon={Sparkles} label="AI Tools" isActive={activePanel==='ai'} onClick={() => openPanel('ai')} />
-                 <BottomNavButton icon={SlidersHorizontal} label="Adjust" isActive={activePanel==='adjust'} onClick={() => openPanel('adjust')} />
-                 <BottomNavButton icon={Paintbrush} label="Filters" isActive={activePanel==='filter'} onClick={() => openPanel('filter')} />
-                 <BottomNavButton icon={Clapperboard} label="Transform" isActive={activePanel==='transform'} onClick={() => openPanel('transform')} />
-                 <Button className="h-12" onClick={() => setIsPanelOpen(!isPanelOpen)}>
-                    <Menu className="w-5 h-5"/>
-                    <span className="ml-2">Tools</span>
-                 </Button>
-            </div>
-             <div className="flex md:hidden w-full items-center justify-around">
-                 <BottomNavButton icon={Sparkles} label="AI Tools" isActive={activePanel==='ai'} onClick={() => openPanel('ai')} />
-                 <BottomNavButton icon={SlidersHorizontal} label="Adjust" isActive={activePanel==='adjust'} onClick={() => openPanel('adjust')} />
-                 <BottomNavButton icon={Paintbrush} label="Filters" isActive={activePanel==='filter'} onClick={() => openPanel('filter')} />
-                 <BottomNavButton icon={Clapperboard} label="Transform" isActive={activePanel==='transform'} onClick={() => openPanel('transform')} />
-                 <BottomNavButton icon={Menu} label="More" onClick={() => alert("Undo/Redo/Reset options would be here")} />
-             </div>
+      <div className="fixed bottom-0 left-0 right-0 h-20 bg-card border-t z-20 md:hidden">
+        <div className="container mx-auto h-full flex items-center justify-around">
+            <BottomNavButton icon={Sparkles} label="AI Tools" isActive={activePanel==='ai'} onClick={() => openPanel('ai')} />
+            <BottomNavButton icon={SlidersHorizontal} label="Adjust" isActive={activePanel==='adjust'} onClick={() => openPanel('adjust')} />
+            <BottomNavButton icon={Paintbrush} label="Filters" isActive={activePanel==='filter'} onClick={() => openPanel('filter')} />
+            <BottomNavButton icon={Clapperboard} label="Transform" isActive={activePanel==='transform'} onClick={() => openPanel('transform')} />
+            <BottomNavButton icon={Menu} label="More" onClick={() => alert("Undo/Redo/Reset options would be here")} />
         </div>
       </div>
     </div>
   );
 }
+
+    
