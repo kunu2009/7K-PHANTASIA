@@ -20,7 +20,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, X, Check } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement, WatermarkElement, ImageElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
-import { inpaintImageAction } from '@/lib/actions';
+import { inpaintImageAction, eraseBackgroundAction } from '@/lib/actions';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
 
 
@@ -236,7 +236,7 @@ export function Editor({ image, onReset }: EditorProps) {
     }
 
     setEditMode('none');
-  }, [completedCrop, activeImage, toast, updateHistory]);
+  }, [completedCrop, activeImage, toast]);
   
   const saveDrawHistory = () => {
     const canvas = previewCanvasRef.current;
@@ -636,6 +636,21 @@ export function Editor({ image, onReset }: EditorProps) {
     } finally {
       setIsProcessing(false);
       setEditMode('none');
+    }
+  };
+
+  const handleApplyBackgroundRemoval = async () => {
+    setIsProcessing(true);
+    try {
+      const result = await eraseBackgroundAction({ photoDataUri: activeImage });
+      if (!result?.backgroundRemovedPhotoDataUri) {
+        throw new Error("The AI didn't return an image. Please try again.");
+      }
+      updateHistory(result.backgroundRemovedPhotoDataUri);
+    } catch (e) {
+      toast({ variant: 'destructive', title: 'Background Removal Failed', description: (e as Error).message });
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -1246,7 +1261,7 @@ export function Editor({ image, onReset }: EditorProps) {
                                 <Slider id="sticker-rotation" min={-180} max={180} value={[selectedSticker.rotation]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {rotation: v})} />
                             </div>
                          </div>
-                         <Button variant="destructive" size="sm" onClick={() => setStickerElements(stickerElements.filter(t => t.id !== selectedSticker.id))}>Remove</Button>
+                         <Button variant="destructive" size="sm" onClick={() => setStickerElements(stickerElements.filter(t => t.id !== selectedSticker.id))}>Remove Sticker</Button>
                     </Card>
                 )}
             </div>
@@ -1448,7 +1463,7 @@ export function Editor({ image, onReset }: EditorProps) {
                     <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary col-span-2">
                         <Wand2 /> Auto Enhance
                     </Button>
-                    <Button onClick={() => setEditMode('erase')} className="w-full flex-col h-16"><Scissors /> BG Eraser</Button>
+                    <Button onClick={handleApplyBackgroundRemoval} className="w-full flex-col h-16"><Scissors /> BG Eraser</Button>
                     <Button onClick={() => setEditMode('inpaint')} className="w-full flex-col h-16"><Wand2 /> Erase Tool</Button>
                     <Button onClick={() => { setEditMode('text'); setSelectedObjectId({id: null, type: 'text'}); }} className="w-full flex-col h-16"><Type /> Add Text</Button>
                     <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full flex-col h-16"><Smile/> Stickers</Button>
