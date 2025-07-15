@@ -15,6 +15,10 @@ export default function Home() {
     setImage(null);
   };
 
+  if (image) {
+    return <Editor image={image} onReset={handleReset} />;
+  }
+  
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -26,16 +30,8 @@ export default function Home() {
         </div>
       </header>
       <main className="flex-1 flex flex-col">
-        <div className="container mx-auto flex flex-1 flex-col py-8 px-4 w-full h-full">
-          {image ? (
-            <Editor image={image} onReset={handleReset} />
-          ) : (
-            <FileUploader onImageUpload={handleImageUpload} />
-          )}
-        </div>
+        <FileUploader onImageUpload={handleImageUpload} />
       </main>
     </div>
   );
 }
-
-    
