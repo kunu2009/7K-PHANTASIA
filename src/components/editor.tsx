@@ -14,14 +14,14 @@ import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, X, Check } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, X, Check, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement, WatermarkElement, ImageElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction, eraseBackgroundAction } from '@/lib/actions';
 import { RadioGroup, RadioGroupItem } from './ui/radio-group';
+import { cn } from '@/lib/utils';
 
 
 interface EditorProps {
@@ -46,6 +46,7 @@ const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110
 type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image' | 'adjust';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
 type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark' | 'image';
+type ToolSection = 'ai' | 'adjust' | 'filters' | 'transform';
 
 const FONT_FACES = [
   { name: 'PT Sans', value: 'PT Sans, sans-serif' },
@@ -86,6 +87,9 @@ export function Editor({ image, onReset }: EditorProps) {
   const [aspect, setAspect] = useState<number | undefined>();
   
   const [editMode, setEditMode] = useState<EditMode>('none');
+  const [toolSection, setToolSection] = useState<ToolSection>('ai');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
   const [brushSize, setBrushSize] = useState(40);
   
   const drawingCanvasRef = useRef<HTMLCanvasElement>(null); // For the base image in drawing modes
@@ -469,7 +473,7 @@ export function Editor({ image, onReset }: EditorProps) {
       setupDrawingCanvas();
       window.addEventListener('resize', setupDrawingCanvas);
     }
-    if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image') {
+    if (inObjectMode) {
       drawObjectsOnCanvas();
     }
     return () => {
@@ -500,7 +504,7 @@ export function Editor({ image, onReset }: EditorProps) {
     let canvas: HTMLCanvasElement | null = null;
     if (editMode === 'erase' || editMode === 'inpaint') {
       canvas = previewCanvasRef.current;
-    } else if (editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image') {
+    } else if (inObjectMode) {
       canvas = objectCanvasRef.current;
     }
     
@@ -1070,6 +1074,7 @@ export function Editor({ image, onReset }: EditorProps) {
 
   const handleAutoEnhance = () => {
     applyPreset(AUTO_ENHANCE_PRESET);
+    setEditMode('adjust');
   };
   
   const applyTransform = useCallback(async (transformType: 'rotate' | 'flip', value: number | 'horizontal' | 'vertical') => {
@@ -1366,224 +1371,270 @@ export function Editor({ image, onReset }: EditorProps) {
       }
     }
     return null;
+  };
+  
+  const renderBottomPanelContent = () => {
+        switch(toolSection) {
+            case 'ai':
+                return (
+                    <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 p-4">
+                        <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary flex-col h-20"><Wand2 /> Auto Enhance</Button>
+                        <Button onClick={handleApplyBackgroundRemoval} className="w-full flex-col h-20"><Scissors /> BG Eraser</Button>
+                        <Button onClick={() => { setEditMode('inpaint'); setToolSection('ai'); }} className="w-full flex-col h-20"><Wand2 /> Erase Tool</Button>
+                        <Button onClick={() => { setEditMode('text'); setToolSection('ai'); }} className="w-full flex-col h-20"><Type /> Add Text</Button>
+                        <Button onClick={() => { setEditMode('stickers'); setToolSection('ai'); }} className="w-full flex-col h-20"><Smile/> Stickers</Button>
+                        <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full flex-col h-20"><ImagePlus /> Add Image</Button>
+                        <Button onClick={() => { setEditMode('watermark'); setToolSection('ai'); }} className="w-full flex-col h-20"><Copyright /> Watermark</Button>
+                    </div>
+                );
+            case 'adjust':
+                 return (
+                     <div className="p-4 space-y-6 max-h-[25vh] overflow-y-auto">
+                        {(Object.keys(INITIAL_STATE) as Array<keyof Omit<EditorState, 'rotate' | 'scaleX' | 'scaleY'>>).map((key) => {
+                            const icons: Record<string, React.ReactNode> = {
+                              brightness: <Sun />, contrast: <Contrast />, saturate: <Droplets />,
+                              grayscale: <Palette />, sepia: <Palette />, hueRotate: <Palette />,
+                            };
+                            return (
+                              <div key={key} className="space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <Label htmlFor={key} className="flex items-center gap-2 capitalize text-xs">
+                                    {icons[key]} {key.replace('Rotate', ' Rotate')}
+                                  </Label>
+                                  <span className="text-xs text-muted-foreground">{state[key]}</span>
+                                </div>
+                                <Slider id={key} min={key === 'hueRotate' ? -180 : 0} max={key.match(/brightness|contrast|saturate/) ? 200 : key === 'hueRotate' ? 180 : 100}
+                                  step={1} value={[state[key]]} onValueChange={([value]) => { setEditMode('adjust'); updateFilter(key, value)}}
+                                />
+                              </div>
+                            );
+                        })}
+                     </div>
+                 );
+            case 'filters':
+                return (
+                    <div className="grid grid-cols-3 md:grid-cols-5 lg:grid-cols-7 gap-2 p-4 max-h-[25vh] overflow-y-auto">
+                         <Button key="Clarity" variant="outline" onClick={() => {applyPreset(AUTO_ENHANCE_PRESET); setEditMode('adjust')}} className="flex flex-col items-center justify-center gap-2 h-24 text-xs">
+                            <span className="text-2xl">✨</span>
+                            <span>Clarity</span>
+                          </Button>
+                        {PRESETS.map((preset) => (
+                          <Button key={preset.name} variant="outline" onClick={() => { applyPreset(preset.settings as Partial<EditorState>); setEditMode('adjust'); }} className="flex flex-col items-center justify-center gap-2 h-24 text-xs">
+                            <span className="text-2xl">{preset.icon}</span>
+                            <span>{preset.name}</span>
+                          </Button>
+                        ))}
+                      </div>
+                );
+            case 'transform':
+                return (
+                    <div className="p-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        <div className="flex flex-col gap-2">
+                           <Label className="text-center text-xs">Crop</Label>
+                            <div className="grid grid-cols-3 gap-1">
+                                {ASPECT_RATIOS.map(ratio => (
+                                    <Button 
+                                        key={ratio.name}
+                                        variant={aspect === ratio.value && editMode === 'crop' ? 'secondary' : 'outline'}
+                                        onClick={() => {
+                                            setEditMode('crop');
+                                            onAspectChange(ratio.value);
+                                        }}
+                                        className="text-xs"
+                                    >
+                                        {ratio.name}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                            <Label className="text-center text-xs">Rotate</Label>
+                            <div className="flex gap-2">
+                                <Button className="flex-1" variant="outline" onClick={() => applyTransform('rotate', 90)}><RotateCw/></Button>
+                                <Button className="flex-1" variant="outline" onClick={() => applyTransform('rotate', -90)}><RotateCw className="scale-x-[-1]"/></Button>
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-2">
+                           <Label className="text-center text-xs">Flip</Label>
+                            <div className="flex gap-2">
+                                <Button className="flex-1" variant="outline" onClick={() => applyTransform('flip', 'horizontal')}><FlipHorizontal/></Button>
+                                <Button className="flex-1" variant="outline" onClick={() => applyTransform('flip', 'vertical')}><FlipVertical/></Button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            default:
+                return null;
+        }
   }
 
+  const SidebarButton = ({ section, icon, label }: { section: ToolSection, icon: React.ReactNode, label: string }) => (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant={toolSection === section && !inEditMode ? 'secondary' : 'ghost'}
+            className={cn('w-full flex justify-start gap-4', isSidebarOpen ? 'px-4' : 'px-2 justify-center')}
+            onClick={() => { setToolSection(section); setEditMode('none'); }}
+          >
+            {icon}
+            {isSidebarOpen && <span className="text-sm">{label}</span>}
+          </Button>
+        </TooltipTrigger>
+        {!isSidebarOpen && <TooltipContent side="right"><p>{label}</p></TooltipContent>}
+      </Tooltip>
+    </TooltipProvider>
+  );
+
   return (
-    <div className="flex flex-col h-screen bg-background">
-      {/* Top Bar */}
-      <header className="flex-shrink-0 h-16 border-b flex items-center justify-between px-4">
-        {inEditMode ? (
-          <>
-            <Button variant="ghost" onClick={handleCancel}>Cancel</Button>
-            <h2 className="text-lg font-headline font-bold">{getEditModeTitle()}</h2>
-            <Button onClick={handleApply}>Apply</Button>
-          </>
-        ) : (
-          <>
-             <Button variant="ghost" onClick={handleFullReset}>
-                <X className="w-5 h-5" />
-             </Button>
-             <h2 className="text-lg font-headline font-bold">{getEditModeTitle()}</h2>
-             <div className="flex items-center gap-1">
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                       <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}><Undo className="w-4 h-4" /></Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Undo</p></TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo}><Redo className="w-4 h-4" /></Button>
-                    </TooltipTrigger>
-                    <TooltipContent><p>Redo</p></TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-                <Button variant="ghost" size="icon" onClick={handleExport}>
-                    <Download className="w-5 h-5"/>
-                </Button>
-            </div>
-          </>
-        )}
-      </header>
+    <div className="flex h-screen bg-background text-foreground">
+      {/* Sidebar */}
+      <aside className={cn('flex flex-col border-r bg-card transition-all', isSidebarOpen ? 'w-56' : 'w-16')}>
+        <div className="h-16 border-b flex items-center px-4">
+           <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+             {isSidebarOpen ? <PanelLeftClose/> : <PanelLeftOpen/>}
+           </Button>
+        </div>
+        <nav className="flex-1 flex flex-col gap-2 p-2">
+          <SidebarButton section="ai" icon={<Sparkles />} label="AI Tools" />
+          <SidebarButton section="adjust" icon={<SlidersHorizontal />} label="Adjust" />
+          <SidebarButton section="filters" icon={<Paintbrush />} label="Filters" />
+          <SidebarButton section="transform" icon={<Clapperboard />} label="Transform" />
+        </nav>
+      </aside>
 
-
-      {/* Image Preview Area */}
-      <div className="flex-1 flex items-center justify-center p-4 relative overflow-hidden bg-muted/40">
-        {inDrawingMode && (
-          <div className="relative w-full h-full flex items-center justify-center">
-            <canvas ref={drawingCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
-            <canvas 
-              ref={previewCanvasRef}
-              className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair touch-none"
-              onMouseDown={startDrawing}
-              onMouseUp={stopDrawing}
-              onMouseLeave={stopDrawing}
-              onMouseMove={draw}
-              onTouchStart={startDrawing}
-              onTouchEnd={stopDrawing}
-              onTouchCancel={stopDrawing}
-              onTouchMove={draw}
-            />
-          </div>
-        )}
-
-        {editMode === 'crop' && (
-           <ReactCrop 
-              crop={crop} 
-              onChange={(_, percentCrop) => setCrop(percentCrop)}
-              onComplete={(c) => setCompletedCrop(c)}
-              aspect={aspect}
-              >
-              <Image
-                ref={imageRef}
-                src={activeImage}
-                alt="Cropping preview"
-                width={800}
-                height={600}
-                className="max-w-full max-h-[calc(100vh-20rem)] object-contain"
-                onLoad={onImageLoad}
-                data-ai-hint="photo edit"
-              />
-            </ReactCrop>
-        )}
-        
-        {(editMode !== 'crop' && !inDrawingMode) && (
-            <div className="relative w-full h-full flex items-center justify-center">
-                 <Image
-                    ref={imageRef}
-                    key={displayedImage}
-                    src={displayedImage}
-                    alt="Editing preview"
-                    width={1000}
-                    height={1000}
-                    className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
-                    style={{ filter: cssFilters }}
-                    data-ai-hint="photo edit"
-                    onLoad={drawObjectsOnCanvas}
-                  />
-                  {inObjectMode && (
-                    <canvas 
-                        ref={objectCanvasRef}
-                        className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-move touch-none"
-                        onMouseDown={handleCanvasInteractionStart}
-                        onMouseMove={handleCanvasInteractionMove}
-                        onMouseUp={handleCanvasInteractionEnd}
-                        onMouseLeave={handleCanvasInteractionEnd}
-                        onTouchStart={handleCanvasInteractionStart}
-                        onTouchMove={handleCanvasInteractionMove}
-                        onTouchEnd={handleCanvasInteractionEnd}
-                        onTouchCancel={handleCanvasInteractionEnd}
-                    />
-                  )}
-            </div>
-        )}
-
-        {isProcessing && (
-          <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center z-10">
-              <Loader className="w-12 h-12 animate-spin text-primary" />
-              <p className="mt-4 text-lg">AI is thinking...</p>
-          </div>
-        )}
-      </div>
-
-      {/* Bottom Tool Panel */}
-      <div className="flex-shrink-0 bg-card border-t">
-        {inEditMode && editMode !== 'none' ? (
-            <div className="overflow-y-auto max-h-[35vh]">
-                {renderEditControls()}
-            </div>
-        ) : (
-            <Tabs defaultValue="ai" className="w-full">
-              <TabsContent value="ai" className="mt-0 border-b">
-                 <div className="grid grid-cols-2 gap-2 p-4">
-                    <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary col-span-2">
-                        <Wand2 /> Auto Enhance
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+          {/* Top Bar */}
+          <header className="flex-shrink-0 h-16 border-b flex items-center justify-between px-4">
+            {inEditMode ? (
+              <>
+                <Button variant="ghost" onClick={handleCancel}>Cancel</Button>
+                <h2 className="text-lg font-headline font-bold">{getEditModeTitle()}</h2>
+                <Button onClick={handleApply} disabled={isProcessing}>{isProcessing ? 'Applying...' : 'Apply'}</Button>
+              </>
+            ) : (
+              <>
+                 <Button variant="ghost" onClick={handleFullReset}>
+                    <X className="w-5 h-5" />
+                 </Button>
+                 <h2 className="text-lg font-headline font-bold">{getEditModeTitle()}</h2>
+                 <div className="flex items-center gap-1">
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                           <Button variant="ghost" size="icon" onClick={handleUndo} disabled={!canUndo}><Undo /></Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Undo</p></TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="icon" onClick={handleRedo} disabled={!canRedo}><Redo /></Button>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Redo</p></TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                    <Button variant="ghost" size="icon" onClick={handleExport}>
+                        <Download className="w-5 h-5"/>
                     </Button>
-                    <Button onClick={handleApplyBackgroundRemoval} className="w-full flex-col h-16"><Scissors /> BG Eraser</Button>
-                    <Button onClick={() => setEditMode('inpaint')} className="w-full flex-col h-16"><Wand2 /> Erase Tool</Button>
-                    <Button onClick={() => { setEditMode('text'); setSelectedObjectId({id: null, type: 'text'}); }} className="w-full flex-col h-16"><Type /> Add Text</Button>
-                    <Button onClick={() => { setEditMode('stickers'); setSelectedObjectId({id: null, type: 'sticker'}); }} className="w-full flex-col h-16"><Smile/> Stickers</Button>
-                    <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full flex-col h-16"><ImagePlus /> Add Image</Button>
-                    <Button onClick={() => setEditMode('watermark')} className="w-full flex-col h-16"><Copyright /> Watermark</Button>
-                 </div>
-              </TabsContent>
-              <TabsContent value="adjust" className="mt-0 border-b max-h-[35vh] overflow-y-auto">
-                 <div className="p-4 space-y-6">
-                    {(Object.keys(INITIAL_STATE) as Array<keyof Omit<EditorState, 'rotate' | 'scaleX' | 'scaleY'>>).map((key) => {
-                        const icons: Record<string, React.ReactNode> = {
-                          brightness: <Sun />, contrast: <Contrast />, saturate: <Droplets />,
-                          grayscale: <Palette />, sepia: <Palette />, hueRotate: <Palette />,
-                        };
-                        return (
-                          <div key={key} className="space-y-2">
-                            <div className="flex justify-between items-center">
-                              <Label htmlFor={key} className="flex items-center gap-2 capitalize text-xs">
-                                {icons[key]} {key.replace('Rotate', ' Rotate')}
-                              </Label>
-                              <span className="text-xs text-muted-foreground">{state[key]}</span>
-                            </div>
-                            <Slider id={key} min={key === 'hueRotate' ? -180 : 0} max={key.match(/brightness|contrast|saturate/) ? 200 : key === 'hueRotate' ? 180 : 100}
-                              step={1} value={[state[key]]} onValueChange={([value]) => { setEditMode('adjust'); updateFilter(key, value)}}
-                            />
-                          </div>
-                        );
-                    })}
-                 </div>
-              </TabsContent>
-              <TabsContent value="filters" className="mt-0 border-b max-h-[35vh] overflow-y-auto">
-                 <div className="grid grid-cols-3 gap-2 p-4">
-                     <Button key="Clarity" variant="outline" onClick={() => applyPreset(AUTO_ENHANCE_PRESET)} className="flex flex-col items-center justify-center gap-2 h-20 text-xs">
-                        <span className="text-2xl">✨</span>
-                        <span>Clarity</span>
-                      </Button>
-                    {PRESETS.map((preset) => (
-                      <Button key={preset.name} variant="outline" onClick={() => { applyPreset(preset.settings as Partial<EditorState>); setEditMode('adjust'); }} className="flex flex-col items-center justify-center gap-2 h-20 text-xs">
-                        <span className="text-2xl">{preset.icon}</span>
-                        <span>{preset.name}</span>
-                      </Button>
-                    ))}
-                  </div>
-              </TabsContent>
-              <TabsContent value="transform" className="mt-0 border-b">
-                 <div className="p-4">
-                    <div className="grid grid-cols-5 gap-2 mb-4">
-                        {ASPECT_RATIOS.map(ratio => (
-                            <Button 
-                                key={ratio.name}
-                                variant={aspect === ratio.value && editMode === 'crop' ? 'secondary' : 'outline'}
-                                onClick={() => {
-                                    setEditMode('crop');
-                                    onAspectChange(ratio.value);
-                                }}
-                                className="text-xs"
-                            >
-                                {ratio.name}
-                            </Button>
-                        ))}
-                    </div>
-                    <div className="grid grid-cols-4 gap-2">
-                        <Button variant="outline" onClick={() => applyTransform('rotate', 90)}><RotateCw/></Button>
-                        <Button variant="outline" onClick={() => applyTransform('rotate', -90)}><RotateCw className="scale-x-[-1]"/></Button>
-                        <Button variant="outline" onClick={() => applyTransform('flip', 'horizontal')}><FlipHorizontal/></Button>
-                        <Button variant="outline" onClick={() => applyTransform('flip', 'vertical')}><FlipVertical/></Button>
-                    </div>
-                 </div>
-              </TabsContent>
+                </div>
+              </>
+            )}
+          </header>
 
-              <TabsList className="grid w-full grid-cols-4 h-16 rounded-none p-0">
-                <TabsTrigger value="ai" className="h-full rounded-none text-xs flex-col gap-1 data-[state=active]:border-t-2 border-primary"><Sparkles/> AI Tools</TabsTrigger>
-                <TabsTrigger value="adjust" className="h-full rounded-none text-xs flex-col gap-1 data-[state=active]:border-t-2 border-primary"><SlidersHorizontal/> Adjust</TabsTrigger>
-                <TabsTrigger value="filters" className="h-full rounded-none text-xs flex-col gap-1 data-[state=active]:border-t-2 border-primary"><Paintbrush/> Filters</TabsTrigger>
-                <TabsTrigger value="transform" className="h-full rounded-none text-xs flex-col gap-1 data-[state=active]:border-t-2 border-primary"><Clapperboard/> Transform</TabsTrigger>
-              </TabsList>
-            </Tabs>
-        )}
+          {/* Image Preview Area */}
+          <main className="flex-1 flex items-center justify-center p-4 relative overflow-hidden bg-muted/40">
+            {inDrawingMode && (
+              <div className="relative w-full h-full flex items-center justify-center">
+                <canvas ref={drawingCanvasRef} className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain pointer-events-none" />
+                <canvas 
+                  ref={previewCanvasRef}
+                  className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-crosshair touch-none"
+                  onMouseDown={startDrawing}
+                  onMouseUp={stopDrawing}
+                  onMouseLeave={stopDrawing}
+                  onMouseMove={draw}
+                  onTouchStart={startDrawing}
+                  onTouchEnd={stopDrawing}
+                  onTouchCancel={stopDrawing}
+                  onTouchMove={draw}
+                />
+              </div>
+            )}
+
+            {editMode === 'crop' && (
+               <ReactCrop 
+                  crop={crop} 
+                  onChange={(_, percentCrop) => setCrop(percentCrop)}
+                  onComplete={(c) => setCompletedCrop(c)}
+                  aspect={aspect}
+                  >
+                  <Image
+                    ref={imageRef}
+                    src={activeImage}
+                    alt="Cropping preview"
+                    width={800}
+                    height={600}
+                    className="max-w-full max-h-[calc(100vh-20rem)] object-contain"
+                    onLoad={onImageLoad}
+                    data-ai-hint="photo edit"
+                  />
+                </ReactCrop>
+            )}
+            
+            {(editMode !== 'crop' && !inDrawingMode) && (
+                <div className="relative w-full h-full flex items-center justify-center">
+                     <Image
+                        ref={imageRef}
+                        key={displayedImage}
+                        src={displayedImage}
+                        alt="Editing preview"
+                        width={1000}
+                        height={1000}
+                        className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
+                        style={{ filter: cssFilters }}
+                        data-ai-hint="photo edit"
+                        onLoad={drawObjectsOnCanvas}
+                      />
+                      {inObjectMode && (
+                        <canvas 
+                            ref={objectCanvasRef}
+                            className="absolute inset-0 w-auto h-auto max-w-full max-h-full object-contain cursor-move touch-none"
+                            onMouseDown={handleCanvasInteractionStart}
+                            onMouseMove={handleCanvasInteractionMove}
+                            onMouseUp={handleCanvasInteractionEnd}
+                            onMouseLeave={handleCanvasInteractionEnd}
+                            onTouchStart={handleCanvasInteractionStart}
+                            onTouchMove={handleCanvasInteractionMove}
+                            onTouchEnd={handleCanvasInteractionEnd}
+                            onTouchCancel={handleCanvasInteractionEnd}
+                        />
+                      )}
+                </div>
+            )}
+
+            {isProcessing && (
+              <div className="absolute inset-0 bg-background/80 flex flex-col items-center justify-center z-10">
+                  <Loader className="w-12 h-12 animate-spin text-primary" />
+                  <p className="mt-4 text-lg">AI is thinking...</p>
+              </div>
+            )}
+          </main>
+
+          {/* Bottom Tool Panel */}
+           <footer className="flex-shrink-0 bg-card border-t">
+              {inEditMode && editMode !== 'none' ? (
+                <div className="overflow-y-auto max-h-[35vh]">
+                    {renderEditControls()}
+                </div>
+              ) : (
+                <div className="w-full">
+                  {renderBottomPanelContent()}
+                </div>
+              )}
+           </footer>
       </div>
-
       <input type="file" ref={overlayImageInputRef} className="hidden" accept="image/*" onChange={handleAddImageLayer} />
     </div>
   );
 }
-
-    
