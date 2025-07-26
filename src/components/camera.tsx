@@ -126,13 +126,7 @@ export function Camera({ onImageCapture }: CameraProps) {
         )}
       </div>
       
-      <div className="absolute bottom-0 left-0 right-0 h-48 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-4 z-10">
-        <div className="flex items-center justify-between w-full mb-4">
-            <Button variant="ghost" size="sm">Auto</Button>
-            <Button variant="ghost" size="sm">Portrait</Button>
-            <Button variant="ghost" size="sm"><Moon className="w-4 h-4 mr-1"/>Night</Button>
-            <Button variant="ghost" size="sm">Manual</Button>
-        </div>
+      <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-4 z-10">
         <div className="flex items-center justify-around w-full">
             <Button variant="ghost" size="icon"><GalleryHorizontal/></Button>
             <button 
