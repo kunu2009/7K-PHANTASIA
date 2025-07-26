@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, X, Check, PanelLeftOpen, PanelLeftClose, MoveLeft } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, X, Check, PanelRightOpen, PanelRightClose, MoveLeft } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement, WatermarkElement, ImageElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction, eraseBackgroundAction } from '@/lib/actions';
@@ -43,7 +43,7 @@ const STICKERS = ['😀', '😂', '😍', '😎', '🥳', '🚀', '❤️', '⭐
 
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image' | 'adjust' | 'filters' | 'transform';
+type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image' | 'adjust' | 'filters' | 'transform' | 'ai';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
 type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark' | 'image';
 type ToolSection = 'ai' | 'adjust' | 'filters' | 'transform';
@@ -75,7 +75,7 @@ export function Editor({ image, onReset }: EditorProps) {
   const [historyIndex, setHistoryIndex] = useState(0);
   
   const activeImage = history[historyIndex];
-  const [isComparing, setIsComparing] = useState(false);
+  const [isComparing, setIsComparing] = useState(isComparing);
   const [isProcessing, setIsProcessing] = useState(false);
   
   const imageRef = useRef<HTMLImageElement>(null);
@@ -1144,7 +1144,7 @@ export function Editor({ image, onReset }: EditorProps) {
       handleCancelDrawing();
     } else if (inObjectMode) {
       cancelObjectEditing();
-    } else if (editMode === 'adjust') {
+    } else if (editMode === 'adjust' || editMode === 'filters') {
       reset();
       setEditMode('none');
     } else {
@@ -1232,7 +1232,7 @@ export function Editor({ image, onReset }: EditorProps) {
                             <span>Clarity</span>
                           </Button>
                         {PRESETS.map((preset) => (
-                          <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex flex-col items-center justify-center gap-2 h-24 text-xs">
+                          <Button key={preset.name} variant="outline" onClick={() => {applyPreset(preset.settings as Partial<EditorState>); setEditMode('adjust')}} className="flex flex-col items-center justify-center gap-2 h-24 text-xs">
                             <span className="text-2xl">{preset.icon}</span>
                             <span>{preset.name}</span>
                           </Button>
@@ -1472,28 +1472,13 @@ export function Editor({ image, onReset }: EditorProps) {
             {isSidebarOpen && <span className="text-sm">{label}</span>}
           </Button>
         </TooltipTrigger>
-        {!isSidebarOpen && <TooltipContent side="right"><p>{label}</p></TooltipContent>}
+        {!isSidebarOpen && <TooltipContent side="left"><p>{label}</p></TooltipContent>}
       </Tooltip>
     </TooltipProvider>
   );
 
   return (
     <div className="flex h-screen bg-background text-foreground">
-      {/* Sidebar */}
-      <aside className={cn('flex flex-col border-r bg-card transition-all duration-300', isSidebarOpen ? 'w-56' : 'w-16')}>
-        <div className="h-16 border-b flex items-center px-4">
-           <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-             {isSidebarOpen ? <PanelLeftClose/> : <PanelLeftOpen/>}
-           </Button>
-        </div>
-        <nav className="flex-1 flex flex-col gap-2 p-2">
-          <SidebarButton mode="ai" icon={<Sparkles />} label="AI Tools" />
-          <SidebarButton mode="adjust" icon={<SlidersHorizontal />} label="Adjust" />
-          <SidebarButton mode="filters" icon={<Paintbrush />} label="Filters" />
-          <SidebarButton mode="transform" icon={<Clapperboard />} label="Transform" />
-        </nav>
-      </aside>
-
       {/* Main Content */}
       <div className="flex-1 flex flex-col">
           {/* Top Bar */}
@@ -1619,7 +1604,23 @@ export function Editor({ image, onReset }: EditorProps) {
                 </div>
            </footer>
       </div>
+      {/* Sidebar */}
+      <aside className={cn('flex flex-col border-l bg-card transition-all duration-300', isSidebarOpen ? 'w-56' : 'w-16')}>
+        <div className="h-16 border-b flex items-center px-4 justify-end">
+           <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
+             {isSidebarOpen ? <PanelRightClose/> : <PanelRightOpen/>}
+           </Button>
+        </div>
+        <nav className="flex-1 flex flex-col gap-2 p-2">
+          <SidebarButton mode="ai" icon={<Sparkles />} label="AI Tools" />
+          <SidebarButton mode="adjust" icon={<SlidersHorizontal />} label="Adjust" />
+          <SidebarButton mode="filters" icon={<Paintbrush />} label="Filters" />
+          <SidebarButton mode="transform" icon={<Clapperboard />} label="Transform" />
+        </nav>
+      </aside>
       <input type="file" ref={overlayImageInputRef} className="hidden" accept="image/*" onChange={handleAddImageLayer} />
     </div>
   );
 }
+
+    
