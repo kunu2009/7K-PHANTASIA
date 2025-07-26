@@ -10,9 +10,6 @@ export const INITIAL_STATE: EditorState = {
   grayscale: 0,
   sepia: 0,
   hueRotate: 0,
-  rotate: 0,
-  scaleX: 1,
-  scaleY: 1,
 };
 
 export function useImageEditor() {
@@ -22,20 +19,8 @@ export function useImageEditor() {
     setState((prevState) => ({ ...prevState, [filter]: value }));
   }, []);
 
-  const rotate = useCallback((degrees: number) => {
-    setState((prevState) => ({ ...prevState, rotate: prevState.rotate + degrees }));
-  }, []);
-
-  const flip = useCallback((axis: 'horizontal' | 'vertical') => {
-    setState((prevState) => ({
-      ...prevState,
-      scaleX: axis === 'horizontal' ? prevState.scaleX * -1 : prevState.scaleX,
-      scaleY: axis === 'vertical' ? prevState.scaleY * -1 : prevState.scaleY,
-    }));
-  }, []);
-
   const applyPreset = useCallback((preset: Partial<EditorState>) => {
-    setState((prevState) => ({ ...prevState, ...INITIAL_STATE, ...preset, rotate: prevState.rotate, scaleX: prevState.scaleX, scaleY: prevState.scaleY }));
+    setState((prevState) => ({ ...prevState, ...INITIAL_STATE, ...preset }));
   }, []);
 
   const reset = useCallback(() => {
@@ -51,20 +36,12 @@ export function useImageEditor() {
     hue-rotate(${state.hueRotate}deg)
   `.trim();
 
-  const cssTransform = `
-    rotate(${state.rotate}deg)
-    scaleX(${state.scaleX})
-    scaleY(${state.scaleY})
-  `.trim();
 
   return {
     state,
     updateFilter,
-    rotate,
-    flip,
     applyPreset,
     reset,
     cssFilters,
-    cssTransform,
   };
 }

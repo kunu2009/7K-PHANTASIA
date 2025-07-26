@@ -68,7 +68,7 @@ const HANDLE_SIZE = 8;
 const ROTATION_HANDLE_OFFSET = 25;
 
 export function Editor({ image, onReset }: EditorProps) {
-  const { state, updateFilter, rotate, flip, applyPreset, reset, cssFilters, cssTransform } = useImageEditor();
+  const { state, updateFilter, applyPreset, reset, cssFilters } = useImageEditor();
   
   const [history, setHistory] = useState<string[]>([image]);
   const [historyIndex, setHistoryIndex] = useState(0);
@@ -134,12 +134,12 @@ export function Editor({ image, onReset }: EditorProps) {
     }
   };
 
-  const updateHistory = (newImage: string) => {
+  const updateHistory = useCallback((newImage: string) => {
     const newHistory = history.slice(0, historyIndex + 1);
     newHistory.push(newImage);
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
-  };
+  }, [history, historyIndex]);
   
   const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
     const { width, height } = e.currentTarget;
@@ -236,7 +236,7 @@ export function Editor({ image, onReset }: EditorProps) {
     }
 
     setEditMode('none');
-  }, [completedCrop, activeImage, toast]);
+  }, [completedCrop, activeImage, toast, updateHistory]);
   
   const saveDrawHistory = () => {
     const canvas = previewCanvasRef.current;
@@ -1061,41 +1061,52 @@ export function Editor({ image, onReset }: EditorProps) {
   };
   
   const handleExport = () => {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    const originalImage = new window.Image();
-    originalImage.crossOrigin = 'anonymous';
-    originalImage.src = activeImage;
-
-    originalImage.onload = () => {
-        const rad = state.rotate * Math.PI / 180;
-        const absCos = Math.abs(Math.cos(rad));
-        const absSin = Math.abs(Math.sin(rad));
-
-        const originalWidth = originalImage.naturalWidth;
-        const originalHeight = originalImage.naturalHeight;
-
-        canvas.width = originalWidth * absCos + originalHeight * absSin;
-        canvas.height = originalHeight * absCos + originalWidth * absSin;
-        
-        ctx.filter = cssFilters;
-        ctx.translate(canvas.width / 2, canvas.height / 2);
-        ctx.rotate(rad);
-        ctx.scale(state.scaleX, state.scaleY);
-        ctx.drawImage(originalImage, -originalWidth / 2, -originalHeight / 2, originalWidth, originalHeight);
-
-        const link = document.createElement('a');
-        link.download = `phantasia-edit-${Date.now()}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-    };
+    const link = document.createElement('a');
+    link.download = `phantasia-edit-${Date.now()}.png`;
+    link.href = activeImage;
+    link.click();
   };
 
   const handleAutoEnhance = () => {
     applyPreset(AUTO_ENHANCE_PRESET);
   };
+  
+  const applyTransform = useCallback(async (transformType: 'rotate' | 'flip', value: number | 'horizontal' | 'vertical') => {
+      const sourceImage = new window.Image();
+      sourceImage.src = activeImage;
+      sourceImage.crossOrigin = 'anonymous';
+      
+      sourceImage.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        
+        const originalWidth = sourceImage.naturalWidth;
+        const originalHeight = sourceImage.naturalHeight;
+
+        if (transformType === 'rotate') {
+            const degrees = value as number;
+            const rad = degrees * Math.PI / 180;
+            const absCos = Math.abs(Math.cos(rad));
+            const absSin = Math.abs(Math.sin(rad));
+
+            canvas.width = originalWidth * absCos + originalHeight * absSin;
+            canvas.height = originalHeight * absCos + originalWidth * absSin;
+            
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.rotate(rad);
+            ctx.drawImage(originalImage, -originalWidth / 2, -originalHeight / 2);
+        } else { // flip
+            canvas.width = originalWidth;
+            canvas.height = originalHeight;
+            ctx.translate(value === 'horizontal' ? canvas.width : 0, value === 'vertical' ? canvas.height : 0);
+            ctx.scale(value === 'horizontal' ? -1 : 1, value === 'vertical' ? -1 : 1);
+            ctx.drawImage(originalImage, 0, 0);
+        }
+        
+        updateHistory(canvas.toDataURL('image/png'));
+      }
+  }, [activeImage, updateHistory]);
 
   const handleFullReset = () => {
     reset();
@@ -1321,6 +1332,7 @@ export function Editor({ image, onReset }: EditorProps) {
         );
       }
     }
+    return null;
   }
 
   return (
@@ -1421,7 +1433,7 @@ export function Editor({ image, onReset }: EditorProps) {
                     width={1000}
                     height={1000}
                     className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
-                    style={isComparing ? {} : { filter: cssFilters, transform: cssTransform }}
+                    style={isComparing ? {} : { filter: cssFilters }}
                     data-ai-hint="photo edit"
                     onLoad={drawObjectsOnCanvas}
                   />
@@ -1473,7 +1485,7 @@ export function Editor({ image, onReset }: EditorProps) {
               </TabsContent>
               <TabsContent value="adjust" className="mt-0 border-b max-h-[35vh] overflow-y-auto">
                  <div className="p-4 space-y-6">
-                    {(Object.keys(INITIAL_STATE) as Array<keyof EditorState>).slice(0, 6).map((key) => {
+                    {(Object.keys(INITIAL_STATE) as Array<keyof Omit<EditorState, 'rotate' | 'scaleX' | 'scaleY'>>).map((key) => {
                         const icons: Record<string, React.ReactNode> = {
                           brightness: <Sun />, contrast: <Contrast />, saturate: <Droplets />,
                           grayscale: <Palette />, sepia: <Palette />, hueRotate: <Palette />,
@@ -1527,10 +1539,10 @@ export function Editor({ image, onReset }: EditorProps) {
                         ))}
                     </div>
                     <div className="grid grid-cols-4 gap-2">
-                        <Button variant="outline" onClick={() => rotate(90)}><RotateCw/></Button>
-                        <Button variant="outline" onClick={() => rotate(-90)}><RotateCw className="scale-x-[-1]"/></Button>
-                        <Button variant="outline" onClick={() => flip('horizontal')}><FlipHorizontal/></Button>
-                        <Button variant="outline" onClick={() => flip('vertical')}><FlipVertical/></Button>
+                        <Button variant="outline" onClick={() => applyTransform('rotate', 90)}><RotateCw/></Button>
+                        <Button variant="outline" onClick={() => applyTransform('rotate', -90)}><RotateCw className="scale-x-[-1]"/></Button>
+                        <Button variant="outline" onClick={() => applyTransform('flip', 'horizontal')}><FlipHorizontal/></Button>
+                        <Button variant="outline" onClick={() => applyTransform('flip', 'vertical')}><FlipVertical/></Button>
                     </div>
                  </div>
               </TabsContent>

@@ -5,9 +5,6 @@ export type EditorState = {
   grayscale: number;
   sepia: number;
   hueRotate: number;
-  rotate: number;
-  scaleX: number;
-  scaleY: number;
 };
 
 export type TextElement = {
