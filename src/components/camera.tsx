@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Camera as CameraIcon, VideoOff, Settings, GalleryHorizontal, Wand2, Bot, ChevronLeft, Sun, Moon, RefreshCcw } from 'lucide-react';
+import { Camera as CameraIcon, VideoOff, RefreshCcw } from 'lucide-react';
 
 interface CameraProps {
   onImageCapture: (imageDataUrl: string) => void;
@@ -96,15 +96,7 @@ export function Camera({ onImageCapture }: CameraProps) {
   return (
     <div className="flex-1 flex flex-col bg-black text-white relative">
       <canvas ref={canvasRef} className="hidden" />
-      <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/60 to-transparent flex items-center justify-between p-4 z-10">
-        <Button variant="ghost" size="icon"><ChevronLeft /></Button>
-        <div className="flex items-center gap-2">
-            <Button variant="ghost" size="sm">HDR: Auto</Button>
-            <Button variant="ghost" size="icon"><Bot /></Button>
-        </div>
-        <Button variant="ghost" size="icon"><Settings /></Button>
-      </div>
-
+      
       <div className="flex-1 flex items-center justify-center relative">
         {/* The video element is visually flipped via CSS for a natural mirror effect */}
         <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline style={{ transform: isFrontCamera ? 'scaleX(-1)' : 'scaleX(1)' }}/>
@@ -127,15 +119,17 @@ export function Camera({ onImageCapture }: CameraProps) {
       </div>
       
       <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-4 z-10">
-        <div className="flex items-center justify-around w-full">
-            <Button variant="ghost" size="icon"><GalleryHorizontal/></Button>
+        <div className="flex items-center justify-center w-full">
+            <div className="w-24"></div>
             <button 
               onClick={handleCapture}
               className="w-20 h-20 rounded-full border-4 border-white bg-transparent ring-4 ring-black/50 active:bg-white/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!hasCameraPermission}
               aria-label="Capture photo"
             />
-            <Button variant="ghost" size="icon" onClick={handleSwitchCamera} disabled={!hasCameraPermission}><RefreshCcw /></Button>
+            <div className="w-24 flex items-center justify-center">
+                <Button variant="ghost" size="icon" onClick={handleSwitchCamera} disabled={!hasCameraPermission}><RefreshCcw /></Button>
+            </div>
         </div>
       </div>
     </div>
