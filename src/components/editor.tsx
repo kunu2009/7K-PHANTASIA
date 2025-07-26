@@ -16,7 +16,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useImageEditor, INITIAL_STATE } from '@/hooks/use-image-editor';
 import { useToast } from '@/hooks/use-toast';
-import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, X, Check, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
+import { Sparkles, RotateCcw, Sun, Contrast, Droplets, Palette, RotateCw, FlipHorizontal, FlipVertical, Download, Wand2, CropIcon, Scissors, Undo, Redo, Eraser, Layers, Type, Bold, Italic, Smile, Loader, Ratio, Copyright, ImagePlus, SlidersHorizontal, Paintbrush, Clapperboard, X, Check, PanelLeftOpen, PanelLeftClose, MoveLeft } from 'lucide-react';
 import type { EditorState, TextElement, StickerElement, WatermarkElement, ImageElement } from '@/lib/types';
 import { Switch } from '@/components/ui/switch';
 import { inpaintImageAction, eraseBackgroundAction } from '@/lib/actions';
@@ -43,7 +43,7 @@ const STICKERS = ['😀', '😂', '😍', '😎', '🥳', '🚀', '❤️', '⭐
 
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image' | 'adjust';
+type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image' | 'adjust' | 'filters' | 'transform';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
 type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark' | 'image';
 type ToolSection = 'ai' | 'adjust' | 'filters' | 'transform';
@@ -87,8 +87,7 @@ export function Editor({ image, onReset }: EditorProps) {
   const [aspect, setAspect] = useState<number | undefined>();
   
   const [editMode, setEditMode] = useState<EditMode>('none');
-  const [toolSection, setToolSection] = useState<ToolSection>('ai');
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const [brushSize, setBrushSize] = useState(40);
   
@@ -1161,7 +1160,7 @@ export function Editor({ image, onReset }: EditorProps) {
       if (editMode === 'inpaint') handleApplyInpaint();
     } else if (inObjectMode) {
       handleApplyObjects();
-    } else if (editMode === 'adjust') {
+    } else if (editMode === 'adjust' || editMode === 'filters') {
       handleApplyFilters();
     }
   }
@@ -1181,210 +1180,24 @@ export function Editor({ image, onReset }: EditorProps) {
       case 'watermark': return 'Add Watermark';
       case 'image': return 'Add Image Layer';
       case 'adjust': return 'Adjust';
+      case 'filters': return 'Filters';
+      case 'transform': return 'Transform';
       default: return 'Phantasia';
     }
   };
-
-  const renderEditControls = () => {
-    if (inDrawingMode) {
-      return (
-         <div className="space-y-4 p-4">
-           <div>
-              <Label htmlFor="brush-size" className="flex items-center gap-2 mb-2">
-                <Eraser className="w-4 h-4 text-muted-foreground" />
-                Brush Size ({brushSize})
-              </Label>
-              <Slider
-                id="brush-size"
-                min={5}
-                max={100}
-                step={1}
-                value={[brushSize]}
-                onValueChange={([value]) => setBrushSize(value)}
-              />
-           </div>
-           <div className="flex items-center justify-center p-4 bg-muted/50 rounded-lg">
-              <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ 
-                  width: brushSize, 
-                  height: brushSize,
-                  backgroundColor: editMode === 'erase' ? 'rgba(255,0,0,0.5)' : 'rgba(0,0,255,0.5)'
-               }}>
-              </div>
-           </div>
-           <div className="flex items-center justify-center gap-2">
-               <TooltipProvider>
-                  <Tooltip>
-                      <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" onClick={handleUndoDraw} disabled={!canUndoDraw}>
-                              <Undo className="w-4 h-4" />
-                          </Button>
-                      </TooltipTrigger>
-                      <TooltipContent><p>Undo Stroke</p></TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                      <TooltipTrigger asChild>
-                          <Button variant="ghost" size="icon" onClick={handleRedoDraw} disabled={!canRedoDraw}>
-                              <Redo className="w-4 h-4" />
-                          </Button>
-                      </TooltipTrigger>
-                      <TooltipContent><p>Redo Stroke</p></TooltipContent>
-                  </Tooltip>
-               </TooltipProvider>
-           </div>
-         </div>
-      );
-    }
-    if (inObjectMode) {
-      if (editMode === 'text') {
-        return (
-          <div className="space-y-4 p-4">
-              <Button onClick={handleAddText} className="w-full">Add Text</Button>
-              {selectedText && (
-                <Card className="p-4 space-y-4">
-                  <h3 className="font-semibold text-center text-sm">Edit Text</h3>
-                   <div>
-                      <Label htmlFor="text-input" className="text-xs">Text</Label>
-                      <Input id="text-input" value={selectedText.text} onChange={(e) => updateTextElement(selectedText.id, {text: e.target.value})} />
-                   </div>
-                   <div>
-                      <Label htmlFor="font-family" className="text-xs">Font Family</Label>
-                       <Select value={selectedText.fontFamily} onValueChange={(value) => updateTextElement(selectedText.id, { fontFamily: value })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                              {FONT_FACES.map(font => <SelectItem key={font.value} value={font.value} style={{fontFamily: font.value}}>{font.name}</SelectItem>)}
-                          </SelectContent>
-                       </Select>
-                   </div>
-                   <div className="grid grid-cols-2 gap-4">
-                      <div>
-                          <Label htmlFor="font-size" className="text-xs">Size</Label>
-                          <Slider id="font-size" min={10} max={200} value={[selectedText.fontSize]} onValueChange={([v]) => updateTextElement(selectedText.id, {fontSize: v})} />
-                      </div>
-                      <div>
-                          <Label htmlFor="font-rotation" className="text-xs">Rotate</Label>
-                          <Slider id="font-rotation" min={-180} max={180} value={[selectedText.rotation]} onValueChange={([v]) => updateTextElement(selectedText.id, {rotation: v})} />
-                      </div>
-                   </div>
-                   <div className="flex items-center gap-4">
-                      <Label className="text-xs">Color</Label>
-                      <Input type="color" value={selectedText.color} onChange={e => updateTextElement(selectedText.id, {color: e.target.value})} className="p-0 h-8 w-12" />
-                   </div>
-                   <div className="grid grid-cols-2 gap-2">
-                       <Button variant={selectedText.bold ? 'secondary' : 'outline'} size="sm" onClick={() => updateTextElement(selectedText.id, {bold: !selectedText.bold})}><Bold/></Button>
-                       <Button variant={selectedText.italic ? 'secondary' : 'outline'} size="sm" onClick={() => updateTextElement(selectedText.id, {italic: !selectedText.italic})}><Italic/></Button>
-                   </div>
-                   <div className="flex items-center justify-between">
-                      <Label htmlFor="shadow" className="flex items-center gap-2 text-xs">Shadow</Label>
-                      <Switch id="shadow" checked={selectedText.shadow} onCheckedChange={c => updateTextElement(selectedText.id, {shadow: c})} />
-                   </div>
-                   <div className="flex items-center justify-between">
-                      <Label htmlFor="stroke" className="flex items-center gap-2 text-xs">Stroke</Label>
-                      <Switch id="stroke" checked={selectedText.stroke} onCheckedChange={c => updateTextElement(selectedText.id, {stroke: c})} />
-                   </div>
-                   <Button variant="destructive" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedText.id))}>Remove</Button>
-                </Card>
-              )}
-          </div>
-        );
-      }
-      if (editMode === 'stickers') {
-        return (
-            <div className="space-y-4 p-4">
-                <div className="grid grid-cols-4 gap-2">
-                    {STICKERS.map(sticker => (
-                        <Button key={sticker} variant="outline" className="text-2xl aspect-square h-auto" onClick={() => handleAddSticker(sticker)}>
-                            {sticker}
-                        </Button>
-                    ))}
-                </div>
-                {selectedSticker && (
-                    <Card className="p-4 space-y-4">
-                        <h3 className="font-semibold text-center text-sm">Edit Sticker</h3>
-                         <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label htmlFor="sticker-size" className="text-xs">Size</Label>
-                                <Slider id="sticker-size" min={20} max={300} value={[selectedSticker.size]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {size: v})} />
-                            </div>
-                            <div>
-                                <Label htmlFor="sticker-rotation" className="text-xs">Rotate</Label>
-                                <Slider id="sticker-rotation" min={-180} max={180} value={[selectedSticker.rotation]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {rotation: v})} />
-                            </div>
-                         </div>
-                         <Button variant="destructive" size="sm" onClick={() => setStickerElements(stickerElements.filter(t => t.id !== selectedSticker.id))}>Remove Sticker</Button>
-                    </Card>
-                )}
-            </div>
-        );
-      }
-      if (editMode === 'watermark') {
-        return (
-            <div className="space-y-4 p-4">
-                {watermark && (
-                  <Card className="p-4 space-y-4">
-                    <h3 className="font-semibold text-center text-sm">Edit Watermark</h3>
-                     <div>
-                        <Label htmlFor="watermark-input" className="text-xs">Text</Label>
-                        <Input id="watermark-input" value={watermark.text} onChange={(e) => updateWatermarkElement({text: e.target.value})} />
-                     </div>
-                     <div>
-                        <Label className="text-xs">Color</Label>
-                         <RadioGroup defaultValue={watermark.color.startsWith('rgba(0,0,0') ? 'black' : 'white'} onValueChange={(value) => updateWatermarkElement({ color: value as 'black' | 'white'})} className="flex gap-4 pt-2">
-                            <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="white" id="white" />
-                                <Label htmlFor="white" className="text-xs">White</Label>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                                <RadioGroupItem value="black" id="black" />
-                                <Label htmlFor="black" className="text-xs">Black</Label>
-                            </div>
-                         </RadioGroup>
-                     </div>
-                     <div>
-                         <Label htmlFor="watermark-opacity" className="text-xs">Opacity</Label>
-                         <Slider id="watermark-opacity" min={0} max={1} step={0.05} value={[watermark.opacity]} onValueChange={([v]) => updateWatermarkElement({opacity: v})} />
-                     </div>
-                     <div>
-                        <Label htmlFor="watermark-size" className="text-xs">Size</Label>
-                        <Slider id="watermark-size" min={10} max={200} value={[watermark.size]} onValueChange={([v]) => updateWatermarkElement({size: v})} />
-                     </div>
-                  </Card>
-                )}
-            </div>
-        );
-      }
-      if (editMode === 'image') {
-        return (
-             <div className="space-y-4 p-4">
-                 <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">Add Another Image</Button>
-                 {selectedImage && (
-                    <Card className="p-4 space-y-4">
-                        <h3 className="font-semibold text-center text-sm">Edit Image Layer</h3>
-                         <div>
-                            <Label htmlFor="image-rotation" className="text-xs">Rotate</Label>
-                            <Slider id="image-rotation" min={-180} max={180} value={[selectedImage.rotation]} onValueChange={([v]) => updateImageElement(selectedImage.id, {rotation: v})} />
-                        </div>
-                        <Button variant="destructive" size="sm" onClick={() => setImageElements(imageElements.filter(t => t.id !== selectedImage.id))}>Remove Image</Button>
-                    </Card>
-                )}
-             </div>
-        );
-      }
-    }
-    return null;
-  };
   
   const renderBottomPanelContent = () => {
-        switch(toolSection) {
+        switch(editMode) {
             case 'ai':
                 return (
                     <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 p-4">
                         <Button onClick={handleAutoEnhance} className="w-full bg-primary/90 hover:bg-primary flex-col h-20"><Wand2 /> Auto Enhance</Button>
                         <Button onClick={handleApplyBackgroundRemoval} className="w-full flex-col h-20"><Scissors /> BG Eraser</Button>
-                        <Button onClick={() => { setEditMode('inpaint'); setToolSection('ai'); }} className="w-full flex-col h-20"><Wand2 /> Erase Tool</Button>
-                        <Button onClick={() => { setEditMode('text'); setToolSection('ai'); }} className="w-full flex-col h-20"><Type /> Add Text</Button>
-                        <Button onClick={() => { setEditMode('stickers'); setToolSection('ai'); }} className="w-full flex-col h-20"><Smile/> Stickers</Button>
+                        <Button onClick={() => setEditMode('inpaint')} className="w-full flex-col h-20"><Wand2 /> Erase Tool</Button>
+                        <Button onClick={() => setEditMode('text')} className="w-full flex-col h-20"><Type /> Add Text</Button>
+                        <Button onClick={() => setEditMode('stickers')} className="w-full flex-col h-20"><Smile/> Stickers</Button>
                         <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full flex-col h-20"><ImagePlus /> Add Image</Button>
-                        <Button onClick={() => { setEditMode('watermark'); setToolSection('ai'); }} className="w-full flex-col h-20"><Copyright /> Watermark</Button>
+                        <Button onClick={() => setEditMode('watermark')} className="w-full flex-col h-20"><Copyright /> Watermark</Button>
                     </div>
                 );
             case 'adjust':
@@ -1404,7 +1217,7 @@ export function Editor({ image, onReset }: EditorProps) {
                                   <span className="text-xs text-muted-foreground">{state[key]}</span>
                                 </div>
                                 <Slider id={key} min={key === 'hueRotate' ? -180 : 0} max={key.match(/brightness|contrast|saturate/) ? 200 : key === 'hueRotate' ? 180 : 100}
-                                  step={1} value={[state[key]]} onValueChange={([value]) => { setEditMode('adjust'); updateFilter(key, value)}}
+                                  step={1} value={[state[key]]} onValueChange={([value]) => updateFilter(key, value)}
                                 />
                               </div>
                             );
@@ -1419,7 +1232,7 @@ export function Editor({ image, onReset }: EditorProps) {
                             <span>Clarity</span>
                           </Button>
                         {PRESETS.map((preset) => (
-                          <Button key={preset.name} variant="outline" onClick={() => { applyPreset(preset.settings as Partial<EditorState>); setEditMode('adjust'); }} className="flex flex-col items-center justify-center gap-2 h-24 text-xs">
+                          <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex flex-col items-center justify-center gap-2 h-24 text-xs">
                             <span className="text-2xl">{preset.icon}</span>
                             <span>{preset.name}</span>
                           </Button>
@@ -1463,19 +1276,197 @@ export function Editor({ image, onReset }: EditorProps) {
                         </div>
                     </div>
                 );
+            case 'erase':
+            case 'inpaint':
+              return (
+                 <div className="p-4 space-y-4">
+                   <div>
+                      <Label htmlFor="brush-size" className="flex items-center gap-2 mb-2">
+                        <Eraser className="w-4 h-4 text-muted-foreground" />
+                        Brush Size ({brushSize})
+                      </Label>
+                      <Slider
+                        id="brush-size"
+                        min={5}
+                        max={100}
+                        step={1}
+                        value={[brushSize]}
+                        onValueChange={([value]) => setBrushSize(value)}
+                      />
+                   </div>
+                   <div className="flex items-center justify-center p-4 bg-muted/50 rounded-lg">
+                      <div className="w-20 h-20 rounded-full flex items-center justify-center" style={{ 
+                          width: brushSize, 
+                          height: brushSize,
+                          backgroundColor: editMode === 'erase' ? 'rgba(255,0,0,0.5)' : 'rgba(0,0,255,0.5)'
+                       }}>
+                      </div>
+                   </div>
+                   <div className="flex items-center justify-center gap-2">
+                       <TooltipProvider>
+                          <Tooltip>
+                              <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" onClick={handleUndoDraw} disabled={!canUndoDraw}>
+                                      <Undo className="w-4 h-4" />
+                                  </Button>
+                              </TooltipTrigger>
+                              <TooltipContent><p>Undo Stroke</p></TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                              <TooltipTrigger asChild>
+                                  <Button variant="ghost" size="icon" onClick={handleRedoDraw} disabled={!canRedoDraw}>
+                                      <Redo className="w-4 h-4" />
+                                  </Button>
+                              </TooltipTrigger>
+                              <TooltipContent><p>Redo Stroke</p></TooltipContent>
+                          </Tooltip>
+                       </TooltipProvider>
+                   </div>
+                 </div>
+              );
+            case 'text':
+              return (
+                <div className="p-4 space-y-4">
+                    <Button onClick={handleAddText} className="w-full">Add Text</Button>
+                    {selectedText && (
+                      <Card className="p-4 space-y-4">
+                        <h3 className="font-semibold text-center text-sm">Edit Text</h3>
+                         <div>
+                            <Label htmlFor="text-input" className="text-xs">Text</Label>
+                            <Input id="text-input" value={selectedText.text} onChange={(e) => updateTextElement(selectedText.id, {text: e.target.value})} />
+                         </div>
+                         <div>
+                            <Label htmlFor="font-family" className="text-xs">Font Family</Label>
+                             <Select value={selectedText.fontFamily} onValueChange={(value) => updateTextElement(selectedText.id, { fontFamily: value })}>
+                                <SelectTrigger><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                    {FONT_FACES.map(font => <SelectItem key={font.value} value={font.value} style={{fontFamily: font.value}}>{font.name}</SelectItem>)}
+                                </SelectContent>
+                             </Select>
+                         </div>
+                         <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <Label htmlFor="font-size" className="text-xs">Size</Label>
+                                <Slider id="font-size" min={10} max={200} value={[selectedText.fontSize]} onValueChange={([v]) => updateTextElement(selectedText.id, {fontSize: v})} />
+                            </div>
+                            <div>
+                                <Label htmlFor="font-rotation" className="text-xs">Rotate</Label>
+                                <Slider id="font-rotation" min={-180} max={180} value={[selectedText.rotation]} onValueChange={([v]) => updateTextElement(selectedText.id, {rotation: v})} />
+                            </div>
+                         </div>
+                         <div className="flex items-center gap-4">
+                            <Label className="text-xs">Color</Label>
+                            <Input type="color" value={selectedText.color} onChange={e => updateTextElement(selectedText.id, {color: e.target.value})} className="p-0 h-8 w-12" />
+                         </div>
+                         <div className="grid grid-cols-2 gap-2">
+                             <Button variant={selectedText.bold ? 'secondary' : 'outline'} size="sm" onClick={() => updateTextElement(selectedText.id, {bold: !selectedText.bold})}><Bold/></Button>
+                             <Button variant={selectedText.italic ? 'secondary' : 'outline'} size="sm" onClick={() => updateTextElement(selectedText.id, {italic: !selectedText.italic})}><Italic/></Button>
+                         </div>
+                         <div className="flex items-center justify-between">
+                            <Label htmlFor="shadow" className="flex items-center gap-2 text-xs">Shadow</Label>
+                            <Switch id="shadow" checked={selectedText.shadow} onCheckedChange={c => updateTextElement(selectedText.id, {shadow: c})} />
+                         </div>
+                         <div className="flex items-center justify-between">
+                            <Label htmlFor="stroke" className="flex items-center gap-2 text-xs">Stroke</Label>
+                            <Switch id="stroke" checked={selectedText.stroke} onCheckedChange={c => updateTextElement(selectedText.id, {stroke: c})} />
+                         </div>
+                         <Button variant="destructive" size="sm" onClick={() => setTextElements(textElements.filter(t => t.id !== selectedText.id))}>Remove</Button>
+                      </Card>
+                    )}
+                </div>
+              );
+            case 'stickers':
+              return (
+                  <div className="p-4 space-y-4">
+                      <div className="grid grid-cols-4 gap-2">
+                          {STICKERS.map(sticker => (
+                              <Button key={sticker} variant="outline" className="text-2xl aspect-square h-auto" onClick={() => handleAddSticker(sticker)}>
+                                  {sticker}
+                              </Button>
+                          ))}
+                      </div>
+                      {selectedSticker && (
+                          <Card className="p-4 space-y-4">
+                              <h3 className="font-semibold text-center text-sm">Edit Sticker</h3>
+                               <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                      <Label htmlFor="sticker-size" className="text-xs">Size</Label>
+                                      <Slider id="sticker-size" min={20} max={300} value={[selectedSticker.size]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {size: v})} />
+                                  </div>
+                                  <div>
+                                      <Label htmlFor="sticker-rotation" className="text-xs">Rotate</Label>
+                                      <Slider id="sticker-rotation" min={-180} max={180} value={[selectedSticker.rotation]} onValueChange={([v]) => updateStickerElement(selectedSticker.id, {rotation: v})} />
+                                  </div>
+                               </div>
+                               <Button variant="destructive" size="sm" onClick={() => setStickerElements(stickerElements.filter(t => t.id !== selectedSticker.id))}>Remove Sticker</Button>
+                          </Card>
+                      )}
+                  </div>
+              );
+            case 'watermark':
+              return (
+                  <div className="p-4 space-y-4">
+                      {watermark && (
+                        <Card className="p-4 space-y-4">
+                          <h3 className="font-semibold text-center text-sm">Edit Watermark</h3>
+                           <div>
+                              <Label htmlFor="watermark-input" className="text-xs">Text</Label>
+                              <Input id="watermark-input" value={watermark.text} onChange={(e) => updateWatermarkElement({text: e.target.value})} />
+                           </div>
+                           <div>
+                              <Label className="text-xs">Color</Label>
+                               <RadioGroup defaultValue={watermark.color.startsWith('rgba(0,0,0') ? 'black' : 'white'} onValueChange={(value) => updateWatermarkElement({ color: value as 'black' | 'white'})} className="flex gap-4 pt-2">
+                                  <div className="flex items-center space-x-2">
+                                      <RadioGroupItem value="white" id="white" />
+                                      <Label htmlFor="white" className="text-xs">White</Label>
+                                  </div>
+                                  <div className="flex items-center space-x-2">
+                                      <RadioGroupItem value="black" id="black" />
+                                      <Label htmlFor="black" className="text-xs">Black</Label>
+                                  </div>
+                               </RadioGroup>
+                           </div>
+                           <div>
+                               <Label htmlFor="watermark-opacity" className="text-xs">Opacity</Label>
+                               <Slider id="watermark-opacity" min={0} max={1} step={0.05} value={[watermark.opacity]} onValueChange={([v]) => updateWatermarkElement({opacity: v})} />
+                           </div>
+                           <div>
+                              <Label htmlFor="watermark-size" className="text-xs">Size</Label>
+                              <Slider id="watermark-size" min={10} max={200} value={[watermark.size]} onValueChange={([v]) => updateWatermarkElement({size: v})} />
+                           </div>
+                        </Card>
+                      )}
+                  </div>
+              );
+            case 'image':
+              return (
+                   <div className="p-4 space-y-4">
+                       <Button onClick={() => overlayImageInputRef.current?.click()} className="w-full">Add Another Image</Button>
+                       {selectedImage && (
+                          <Card className="p-4 space-y-4">
+                              <h3 className="font-semibold text-center text-sm">Edit Image Layer</h3>
+                               <div>
+                                  <Label htmlFor="image-rotation" className="text-xs">Rotate</Label>
+                                  <Slider id="image-rotation" min={-180} max={180} value={[selectedImage.rotation]} onValueChange={([v]) => updateImageElement(selectedImage.id, {rotation: v})} />
+                              </div>
+                              <Button variant="destructive" size="sm" onClick={() => setImageElements(imageElements.filter(t => t.id !== selectedImage.id))}>Remove Image</Button>
+                          </Card>
+                      )}
+                   </div>
+              );
             default:
                 return null;
         }
   }
 
-  const SidebarButton = ({ section, icon, label }: { section: ToolSection, icon: React.ReactNode, label: string }) => (
+  const SidebarButton = ({ mode, icon, label }: { mode: EditMode, icon: React.ReactNode, label: string }) => (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant={toolSection === section && !inEditMode ? 'secondary' : 'ghost'}
+            variant={editMode === mode ? 'secondary' : 'ghost'}
             className={cn('w-full flex justify-start gap-4', isSidebarOpen ? 'px-4' : 'px-2 justify-center')}
-            onClick={() => { setToolSection(section); setEditMode('none'); }}
+            onClick={() => { setEditMode(mode); if (!isSidebarOpen) setIsSidebarOpen(true); }}
           >
             {icon}
             {isSidebarOpen && <span className="text-sm">{label}</span>}
@@ -1489,17 +1480,17 @@ export function Editor({ image, onReset }: EditorProps) {
   return (
     <div className="flex h-screen bg-background text-foreground">
       {/* Sidebar */}
-      <aside className={cn('flex flex-col border-r bg-card transition-all', isSidebarOpen ? 'w-56' : 'w-16')}>
+      <aside className={cn('flex flex-col border-r bg-card transition-all duration-300', isSidebarOpen ? 'w-56' : 'w-16')}>
         <div className="h-16 border-b flex items-center px-4">
            <Button variant="ghost" size="icon" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
              {isSidebarOpen ? <PanelLeftClose/> : <PanelLeftOpen/>}
            </Button>
         </div>
         <nav className="flex-1 flex flex-col gap-2 p-2">
-          <SidebarButton section="ai" icon={<Sparkles />} label="AI Tools" />
-          <SidebarButton section="adjust" icon={<SlidersHorizontal />} label="Adjust" />
-          <SidebarButton section="filters" icon={<Paintbrush />} label="Filters" />
-          <SidebarButton section="transform" icon={<Clapperboard />} label="Transform" />
+          <SidebarButton mode="ai" icon={<Sparkles />} label="AI Tools" />
+          <SidebarButton mode="adjust" icon={<SlidersHorizontal />} label="Adjust" />
+          <SidebarButton mode="filters" icon={<Paintbrush />} label="Filters" />
+          <SidebarButton mode="transform" icon={<Clapperboard />} label="Transform" />
         </nav>
       </aside>
 
@@ -1511,7 +1502,7 @@ export function Editor({ image, onReset }: EditorProps) {
               <>
                 <Button variant="ghost" onClick={handleCancel}>Cancel</Button>
                 <h2 className="text-lg font-headline font-bold">{getEditModeTitle()}</h2>
-                <Button onClick={handleApply} disabled={isProcessing}>{isProcessing ? 'Applying...' : 'Apply'}</Button>
+                <Button onClick={handleApply} disabled={isProcessing}>{isProcessing ? 'Applying...' : <Check />}</Button>
               </>
             ) : (
               <>
@@ -1622,16 +1613,10 @@ export function Editor({ image, onReset }: EditorProps) {
           </main>
 
           {/* Bottom Tool Panel */}
-           <footer className="flex-shrink-0 bg-card border-t">
-              {inEditMode && editMode !== 'none' ? (
+           <footer className={cn("flex-shrink-0 bg-card border-t transition-all", inEditMode ? 'h-auto' : 'h-0 overflow-hidden')}>
                 <div className="overflow-y-auto max-h-[35vh]">
-                    {renderEditControls()}
+                    {renderBottomPanelContent()}
                 </div>
-              ) : (
-                <div className="w-full">
-                  {renderBottomPanelContent()}
-                </div>
-              )}
            </footer>
       </div>
       <input type="file" ref={overlayImageInputRef} className="hidden" accept="image/*" onChange={handleAddImageLayer} />
