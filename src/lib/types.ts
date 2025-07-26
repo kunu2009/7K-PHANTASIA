@@ -51,5 +51,3 @@ export type ImageElement = {
     x: number;
     y: number;
 };
-
-    

@@ -1622,5 +1622,3 @@ export function Editor({ image, onReset }: EditorProps) {
     </div>
   );
 }
-
-    
