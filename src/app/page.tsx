@@ -1,3 +1,4 @@
+
 'use client';
 import { useState } from 'react';
 import { Editor } from '@/components/editor';
@@ -9,6 +10,7 @@ import { Upload, Camera as CameraIcon } from 'lucide-react';
 
 export default function Home() {
   const [image, setImage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState('camera');
 
   const handleImageUpload = (imageDataUrl: string) => {
     setImage(imageDataUrl);
@@ -16,6 +18,7 @@ export default function Home() {
 
   const handleReset = () => {
     setImage(null);
+    setActiveTab('camera');
   };
 
   if (image) {
@@ -33,13 +36,13 @@ export default function Home() {
         </div>
       </header>
       <main className="flex-1 flex flex-col">
-        <Tabs defaultValue="camera" className="w-full flex-1 flex flex-col">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full flex-1 flex flex-col">
             <TabsList className="grid w-full grid-cols-2 h-14 rounded-none">
               <TabsTrigger value="camera" className="h-full text-sm flex-col gap-1 data-[state=active]:border-b-2 border-primary rounded-none"><CameraIcon/> Capture</TabsTrigger>
               <TabsTrigger value="upload" className="h-full text-sm flex-col gap-1 data-[state=active]:border-b-2 border-primary rounded-none"><Upload/> Upload</TabsTrigger>
             </TabsList>
             <TabsContent value="camera" className="flex-1 flex flex-col">
-                <Camera onImageCapture={handleImageUpload} />
+                <Camera onImageCapture={handleImageUpload} onBack={() => setActiveTab('upload')} />
             </TabsContent>
             <TabsContent value="upload" className="flex-1 flex flex-col">
                 <FileUploader onImageUpload={handleImageUpload} />
@@ -49,3 +52,5 @@ export default function Home() {
     </div>
   );
 }
+
+    

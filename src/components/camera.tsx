@@ -4,13 +4,14 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { Camera as CameraIcon, VideoOff, RefreshCcw } from 'lucide-react';
+import { Camera as CameraIcon, VideoOff, RefreshCcw, ArrowLeft } from 'lucide-react';
 
 interface CameraProps {
   onImageCapture: (imageDataUrl: string) => void;
+  onBack: () => void;
 }
 
-export function Camera({ onImageCapture }: CameraProps) {
+export function Camera({ onImageCapture, onBack }: CameraProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
@@ -97,6 +98,10 @@ export function Camera({ onImageCapture }: CameraProps) {
     <div className="flex-1 flex flex-col bg-black text-white relative">
       <canvas ref={canvasRef} className="hidden" />
       
+      <div className="absolute top-0 left-0 right-0 h-16 bg-gradient-to-b from-black/50 to-transparent flex items-center justify-between p-4 z-10">
+        <Button variant="ghost" size="icon" onClick={onBack}><ArrowLeft /></Button>
+      </div>
+
       <div className="flex-1 flex items-center justify-center relative">
         {/* The video element is visually flipped via CSS for a natural mirror effect */}
         <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline style={{ transform: isFrontCamera ? 'scaleX(-1)' : 'scaleX(1)' }}/>
@@ -135,3 +140,5 @@ export function Camera({ onImageCapture }: CameraProps) {
     </div>
   );
 }
+
+    

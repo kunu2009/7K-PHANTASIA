@@ -43,7 +43,7 @@ const STICKERS = ['😀', '😂', '😍', '😎', '🥳', '🚀', '❤️', '⭐
 
 const AUTO_ENHANCE_PRESET: Partial<EditorState> = { contrast: 120, saturate: 110, brightness: 105 };
 
-type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image';
+type EditMode = 'none' | 'crop' | 'erase' | 'text' | 'stickers' | 'inpaint' | 'watermark' | 'image' | 'adjust';
 type InteractionMode = 'none' | 'dragging' | 'resizing' | 'rotating';
 type InteractionTarget = 'none' | 'text' | 'sticker' | 'watermark' | 'image';
 
@@ -1043,7 +1043,7 @@ export function Editor({ image, onReset }: EditorProps) {
     }
   };
 
-  const handleApplyFilters = () => {
+  const handleApplyFilters = useCallback(() => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     const sourceImage = new window.Image();
@@ -1057,8 +1057,9 @@ export function Editor({ image, onReset }: EditorProps) {
         ctx.drawImage(sourceImage, 0, 0);
         updateHistory(canvas.toDataURL('image/png'));
         reset();
+        setEditMode('none');
     };
-  };
+  }, [activeImage, cssFilters, reset, updateHistory]);
   
   const handleExport = () => {
     const link = document.createElement('a');
@@ -1090,18 +1091,23 @@ export function Editor({ image, onReset }: EditorProps) {
             const absCos = Math.abs(Math.cos(rad));
             const absSin = Math.abs(Math.sin(rad));
 
-            canvas.width = originalWidth * absCos + originalHeight * absSin;
-            canvas.height = originalHeight * absCos + originalWidth * absSin;
+            if (degrees === 90 || degrees === -90) {
+              canvas.width = originalHeight;
+              canvas.height = originalWidth;
+            } else {
+              canvas.width = originalWidth;
+              canvas.height = originalHeight;
+            }
             
             ctx.translate(canvas.width / 2, canvas.height / 2);
             ctx.rotate(rad);
-            ctx.drawImage(originalImage, -originalWidth / 2, -originalHeight / 2);
+            ctx.drawImage(sourceImage, -originalWidth / 2, -originalHeight / 2);
         } else { // flip
             canvas.width = originalWidth;
             canvas.height = originalHeight;
             ctx.translate(value === 'horizontal' ? canvas.width : 0, value === 'vertical' ? canvas.height : 0);
             ctx.scale(value === 'horizontal' ? -1 : 1, value === 'vertical' ? -1 : 1);
-            ctx.drawImage(originalImage, 0, 0);
+            ctx.drawImage(sourceImage, 0, 0);
         }
         
         updateHistory(canvas.toDataURL('image/png'));
@@ -1129,6 +1135,32 @@ export function Editor({ image, onReset }: EditorProps) {
       setSelectedObjectId({id: null, type: 'none'})
   };
 
+  const handleCancel = () => {
+    if (inDrawingMode) {
+      handleCancelDrawing();
+    } else if (inObjectMode) {
+      cancelObjectEditing();
+    } else if (editMode === 'adjust') {
+      reset();
+      setEditMode('none');
+    } else {
+      setEditMode('none');
+    }
+  }
+
+  const handleApply = () => {
+    if (editMode === 'crop') {
+      applyCrop();
+    } else if (inDrawingMode) {
+      if (editMode === 'erase') handleApplyErase();
+      if (editMode === 'inpaint') handleApplyInpaint();
+    } else if (inObjectMode) {
+      handleApplyObjects();
+    } else if (editMode === 'adjust') {
+      handleApplyFilters();
+    }
+  }
+
   const inEditMode = editMode !== 'none';
   const displayedImage = isComparing ? image : activeImage;
   const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image';
@@ -1143,7 +1175,8 @@ export function Editor({ image, onReset }: EditorProps) {
       case 'stickers': return 'Add Stickers';
       case 'watermark': return 'Add Watermark';
       case 'image': return 'Add Image Layer';
-      default: return 'Tools';
+      case 'adjust': return 'Adjust';
+      default: return 'Phantasia';
     }
   };
 
@@ -1339,29 +1372,19 @@ export function Editor({ image, onReset }: EditorProps) {
     <div className="flex flex-col h-screen bg-background">
       {/* Top Bar */}
       <header className="flex-shrink-0 h-16 border-b flex items-center justify-between px-4">
-        <Button variant="ghost" size="icon" onClick={
-            inEditMode ? (
-                editMode === 'crop' ? () => setEditMode('none') :
-                inDrawingMode ? handleCancelDrawing :
-                inObjectMode ? cancelObjectEditing : () => {}
-            ) : onReset
-        }>
-          <X className="w-5 h-5" />
-        </Button>
-        <h2 className="text-lg font-headline font-bold">
-            {getEditModeTitle()}
-        </h2>
-        
         {inEditMode ? (
-            <Button variant="ghost" size="icon" onClick={
-                editMode === 'crop' ? applyCrop :
-                inDrawingMode ? (editMode === 'erase' ? handleApplyErase : handleApplyInpaint) :
-                inObjectMode ? handleApplyObjects : () => {}
-            }>
-                <Check className="w-5 h-5 text-primary" />
-            </Button>
+          <>
+            <Button variant="ghost" onClick={handleCancel}>Cancel</Button>
+            <h2 className="text-lg font-headline font-bold">{getEditModeTitle()}</h2>
+            <Button onClick={handleApply}>Apply</Button>
+          </>
         ) : (
-             <div className="flex items-center gap-2">
+          <>
+             <Button variant="ghost" onClick={handleFullReset}>
+                <X className="w-5 h-5" />
+             </Button>
+             <h2 className="text-lg font-headline font-bold">{getEditModeTitle()}</h2>
+             <div className="flex items-center gap-1">
                 <TooltipProvider>
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -1380,8 +1403,10 @@ export function Editor({ image, onReset }: EditorProps) {
                     <Download className="w-5 h-5"/>
                 </Button>
             </div>
+          </>
         )}
       </header>
+
 
       {/* Image Preview Area */}
       <div className="flex-1 flex items-center justify-center p-4 relative overflow-hidden bg-muted/40">
@@ -1423,7 +1448,7 @@ export function Editor({ image, onReset }: EditorProps) {
             </ReactCrop>
         )}
         
-        {(editMode === 'none' || inObjectMode) && (
+        {(editMode !== 'crop' && !inDrawingMode) && (
             <div className="relative w-full h-full flex items-center justify-center">
                  <Image
                     ref={imageRef}
@@ -1433,7 +1458,7 @@ export function Editor({ image, onReset }: EditorProps) {
                     width={1000}
                     height={1000}
                     className="object-contain transition-all duration-300 w-auto h-auto max-w-full max-h-full"
-                    style={isComparing ? {} : { filter: cssFilters }}
+                    style={{ filter: cssFilters }}
                     data-ai-hint="photo edit"
                     onLoad={drawObjectsOnCanvas}
                   />
@@ -1464,7 +1489,7 @@ export function Editor({ image, onReset }: EditorProps) {
 
       {/* Bottom Tool Panel */}
       <div className="flex-shrink-0 bg-card border-t">
-        {inEditMode ? (
+        {inEditMode && editMode !== 'none' ? (
             <div className="overflow-y-auto max-h-[35vh]">
                 {renderEditControls()}
             </div>
@@ -1499,12 +1524,11 @@ export function Editor({ image, onReset }: EditorProps) {
                               <span className="text-xs text-muted-foreground">{state[key]}</span>
                             </div>
                             <Slider id={key} min={key === 'hueRotate' ? -180 : 0} max={key.match(/brightness|contrast|saturate/) ? 200 : key === 'hueRotate' ? 180 : 100}
-                              step={1} value={[state[key]]} onValueChange={([value]) => updateFilter(key, value)}
+                              step={1} value={[state[key]]} onValueChange={([value]) => { setEditMode('adjust'); updateFilter(key, value)}}
                             />
                           </div>
                         );
                     })}
-                    <Button onClick={handleApplyFilters} className="w-full">Apply Adjustments</Button>
                  </div>
               </TabsContent>
               <TabsContent value="filters" className="mt-0 border-b max-h-[35vh] overflow-y-auto">
@@ -1514,7 +1538,7 @@ export function Editor({ image, onReset }: EditorProps) {
                         <span>Clarity</span>
                       </Button>
                     {PRESETS.map((preset) => (
-                      <Button key={preset.name} variant="outline" onClick={() => applyPreset(preset.settings as Partial<EditorState>)} className="flex flex-col items-center justify-center gap-2 h-20 text-xs">
+                      <Button key={preset.name} variant="outline" onClick={() => { applyPreset(preset.settings as Partial<EditorState>); setEditMode('adjust'); }} className="flex flex-col items-center justify-center gap-2 h-20 text-xs">
                         <span className="text-2xl">{preset.icon}</span>
                         <span>{preset.name}</span>
                       </Button>
@@ -1561,3 +1585,5 @@ export function Editor({ image, onReset }: EditorProps) {
     </div>
   );
 }
+
+    
