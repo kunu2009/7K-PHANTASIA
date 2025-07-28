@@ -472,6 +472,7 @@ export function Editor({ image, onReset }: EditorProps) {
       setupDrawingCanvas();
       window.addEventListener('resize', setupDrawingCanvas);
     }
+    const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image';
     if (inObjectMode) {
       drawObjectsOnCanvas();
     }
@@ -501,6 +502,7 @@ export function Editor({ image, onReset }: EditorProps) {
 
   const getCanvasCoordinates = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     let canvas: HTMLCanvasElement | null = null;
+    const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image';
     if (editMode === 'erase' || editMode === 'inpaint') {
       canvas = previewCanvasRef.current;
     } else if (inObjectMode) {
@@ -1139,6 +1141,9 @@ export function Editor({ image, onReset }: EditorProps) {
       setSelectedObjectId({id: null, type: 'none'})
   };
 
+  const inDrawingMode = editMode === 'erase' || editMode === 'inpaint';
+  const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image';
+
   const handleCancel = () => {
     if (inDrawingMode) {
       handleCancelDrawing();
@@ -1167,8 +1172,7 @@ export function Editor({ image, onReset }: EditorProps) {
 
   const inEditMode = editMode !== 'none';
   const displayedImage = isComparing ? image : activeImage;
-  const inObjectMode = editMode === 'text' || editMode === 'stickers' || editMode === 'watermark' || editMode === 'image';
-  const inDrawingMode = editMode === 'erase' || editMode === 'inpaint';
+  
   
   const getEditModeTitle = () => {
     switch (editMode) {
@@ -1248,7 +1252,7 @@ export function Editor({ image, onReset }: EditorProps) {
                                 {ASPECT_RATIOS.map(ratio => (
                                     <Button 
                                         key={ratio.name}
-                                        variant={aspect === ratio.value && editMode === 'crop' ? 'secondary' : 'outline'}
+                                        variant={aspect === ratio.value ? 'secondary' : 'outline'}
                                         onClick={() => {
                                             setEditMode('crop');
                                             onAspectChange(ratio.value);
