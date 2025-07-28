@@ -75,7 +75,7 @@ export function Editor({ image, onReset }: EditorProps) {
   const [historyIndex, setHistoryIndex] = useState(0);
   
   const activeImage = history[historyIndex];
-  const [isComparing, setIsComparing] = useState(isComparing);
+  const [isComparing, setIsComparing] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   
   const imageRef = useRef<HTMLImageElement>(null);
